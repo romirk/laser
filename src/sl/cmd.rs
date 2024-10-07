@@ -147,7 +147,7 @@ const SL_LIDAR_RESP_MEASUREMENT_EXP_SYNC_2: u8 = 0x5;
 
 const SL_LIDAR_RESP_MEASUREMENT_HQ_SYNC: u8 = 0xA5;
 
-const SL_LIDAR_RESP_MEASUREMENT_EXP_SYNCBIT: u8 = 0x1 << 15;
+const SL_LIDAR_RESP_MEASUREMENT_EXP_SYNCBIT: u16 = 0x1 << 15;
 
 struct SlLidarResponseCapsuleMeasurementNodesT {
     s_checksum_1: u8, // see [s_checksum_1]

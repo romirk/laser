@@ -1,4 +1,6 @@
-mod sl_lidar_cmd;
+extern crate core;
+
+mod sl;
 
 fn main() {
     println!("Hello, world!");

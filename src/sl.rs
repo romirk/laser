@@ -2,6 +2,7 @@ use std::ffi::c_float;
 
 mod cmd;
 mod types;
+mod serial;
 
 /// LIDAR Scan Mode
 struct LidarScanMode {
@@ -73,32 +74,29 @@ trait Channel {
     // IChannel methods
 
     /// Open communication channel (return true if succeed)
-    fn open() -> bool;
+    fn open(&self) -> bool;
 
     /// Close communication channel
-    fn close();
+    fn close(&self);
 
     /// Flush all written data to remote endpoint
-    fn flush();
+    fn flush(&mut self);
 
     /// Wait for some data
     ///
     /// * `size` - bytes to wait
     /// * `timeout_ms` - Wait timeout (in microseconds, -1 for forever)
     /// * `actual_ready` - \[out] actual ready bytes
-    fn wait_for_data(size: usize, timeout_ms: u32, actual_ready: &mut usize) -> bool;
+    fn wait_for_data(&self, size: usize, timeout_ms: u32, actual_ready: &mut usize) -> bool;
 
     /// Send data to remote endpoint
     fn write(data: &[u8], size: usize) -> isize;
 
     /// Read data from the channel
-    fn read(data: &mut [u8], size: usize) -> isize;
+    fn read(&self, data: &mut [u8]) -> isize;
 
     /// Clear read cache
     fn clear_read_cache();
     fn get_channel_type() -> ChannelType;
-}
-
-struct SerialPortChannel {
 
 }

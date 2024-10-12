@@ -70,6 +70,8 @@ struct SlamtecLidarTimingDesc {
 
 /// Communication channel
 trait Channel {
+    // IChannel methods
+
     /// Open communication channel (return true if succeed)
     fn open() -> bool;
 
@@ -86,11 +88,17 @@ trait Channel {
     /// * `actual_ready` - \[out] actual ready bytes
     fn wait_for_data(size: usize, timeout_ms: u32, actual_ready: &mut usize) -> bool;
 
+    /// Send data to remote endpoint
     fn write(data: &[u8], size: usize) -> isize;
 
+    /// Read data from the channel
     fn read(data: &mut [u8], size: usize) -> isize;
 
+    /// Clear read cache
     fn clear_read_cache();
-
     fn get_channel_type() -> ChannelType;
+}
+
+struct SerialPortChannel {
+
 }

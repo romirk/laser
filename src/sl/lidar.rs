@@ -1,5 +1,5 @@
-use crate::sl::cmd::SlLidarCmd::{GetDeviceHealth, GetDeviceInfo};
-use crate::sl::cmd::{SlLidarResponseDeviceHealthT, SlLidarResponseDeviceInfoT};
+use crate::sl::cmd::SlLidarCmd::{GetDeviceHealth, GetDeviceInfo, GetSampleRate};
+use crate::sl::cmd::{SlLidarResponseDeviceHealthT, SlLidarResponseDeviceInfoT, SlLidarResponseSampleRateT};
 use crate::sl::lidar::LidarState::Idle;
 use crate::sl::serial::SerialPortChannel;
 use crate::sl::Channel;
@@ -88,6 +88,16 @@ impl Lidar {
         SlLidarResponseDeviceHealthT {
             status: data[0],
             error_code: ((data[2] as u16) << 8) | data[1] as u16,
+        }
+    }
+
+    pub fn get_sample_rate(&mut self) -> SlLidarResponseSampleRateT {
+        let res = self.single_req(&[0xa5, GetSampleRate as u8]);
+        let data = res.data;
+
+        SlLidarResponseSampleRateT {
+            std_sample_duration_us: ((data[1] as u16) << 8) | data[0] as u16,
+            express_sample_duration_us: ((data[3] as u16) << 8) | data[2] as u16,
         }
     }
 }

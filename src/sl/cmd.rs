@@ -16,7 +16,7 @@ pub enum SlLidarCmd {
     // Commands without payload but have response
     GetDeviceInfo = 0x50,
     GetDeviceHealth = 0x52,
-    GetSamplerate = 0x59,
+    GetSampleRate = 0x59,
     HQMotorSpeedCtrl = 0xA8,
 
     // Commands with payload and have response
@@ -118,9 +118,9 @@ const SL_LIDAR_RESP_HQ_FLAG_SYNCBIT: u8 = 0x01;
 const SL_LIDAR_RESP_MEASUREMENT_CHECKBIT: u8 = 0x01;
 const SL_LIDAR_RESP_MEASUREMENT_ANGLE_SHIFT: u8 = 0x01;
 
-struct SlLidarResponseSampleRateT {
-    std_sample_duration_us: u16,
-    express_sample_duration_us: u16,
+pub(crate) struct SlLidarResponseSampleRateT {
+    pub(crate) std_sample_duration_us: u16,
+    pub(crate) express_sample_duration_us: u16,
 }
 
 struct SlLidarResponseMeasurementNodeT {

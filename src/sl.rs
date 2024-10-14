@@ -1,5 +1,4 @@
 use std::ffi::c_float;
-use crate::sl::serial::SerialPortChannel;
 
 pub mod serial;
 pub mod cmd;

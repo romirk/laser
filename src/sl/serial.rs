@@ -1,5 +1,5 @@
 use crate::sl::{Channel, ChannelType};
-use serialport::{new, SerialPort};
+use serialport::SerialPort;
 use std::time::{Duration, Instant};
 
 pub struct SerialPortChannel {
@@ -12,7 +12,7 @@ pub struct SerialPortChannel {
 
 impl SerialPortChannel {
     pub fn bind(path: String, baud: u32) -> Box<SerialPortChannel> {
-        let port = new(&path, baud).timeout(Duration::from_millis(1000)).open().unwrap();
+        let port = serialport::new(&path, baud).timeout(Duration::from_millis(1000)).open().unwrap();
         Box::new(SerialPortChannel {
             path: path.clone(),
             baud,

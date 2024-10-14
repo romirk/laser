@@ -2,7 +2,8 @@
 const DEFAULT_MOTOR_SPEED: u16 = 0xFFFF;
 const SL_LIDAR_AUTOBAUD_MAGICBYTE: u8 = 0x41;
 
-enum SlLidarCmd {
+#[repr(u8)]
+pub enum SlLidarCmd {
     // Commands without payload and response
     Stop = 0x25,
     Scan = 0x20,
@@ -129,10 +130,6 @@ struct SlLidarResponseMeasurementNodeT {
 }
 
 //[distance_sync flags]
-// ^#define\s(\w+)\s+(.*)$
-// const $1: u8 = $2;
-// sl_(u[0-9]+)\s+(\w+);
-// $2: $1,
 const SL_LIDAR_RESP_MEASUREMENT_EXP_ANGLE_MASK: u8 = 0x3;
 const SL_LIDAR_RESP_MEASUREMENT_EXP_DISTANCE_MASK: u8 = 0xFC;
 
@@ -259,9 +256,9 @@ pub struct SlLidarResponseDeviceInfoT {
     pub(crate) serial_number: [u8; 16],
 }
 
-struct SlLidarResponseDeviceHealthT {
-    status: u8,
-    error_code: u16,
+pub struct SlLidarResponseDeviceHealthT {
+    pub(crate) status: u8,
+    pub(crate) error_code: u16,
 }
 
 struct SlLidarIpConfT {
@@ -292,3 +289,8 @@ const SL_LIDAR_VARBITSCALE_X16_DEST_VAL: u16 = 3328;
 const fn sl_lidar_varbitscale_get_src_max_val_by_bits(bits: u32) -> u16 {
     (((0x1 << (bits)) - SL_LIDAR_VARBITSCALE_X16_DEST_VAL) << 4) + ((SL_LIDAR_VARBITSCALE_X16_DEST_VAL - SL_LIDAR_VARBITSCALE_X8_DEST_VAL) << 3) + ((SL_LIDAR_VARBITSCALE_X8_DEST_VAL - SL_LIDAR_VARBITSCALE_X4_DEST_VAL) << 2) + ((SL_LIDAR_VARBITSCALE_X4_DEST_VAL - SL_LIDAR_VARBITSCALE_X2_DEST_VAL) << 1) + SL_LIDAR_VARBITSCALE_X2_DEST_VAL - 1
 }
+
+// ^#define\s(\w+)\s+(.*)$
+// const $1: u8 = $2;
+// sl_(u[0-9]+)\s+(\w+);
+// $2: $1,

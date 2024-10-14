@@ -1,4 +1,5 @@
-use crate::sl::cmd::SlLidarResponseDeviceInfoT;
+use crate::sl::cmd::SlLidarCmd::{GetDeviceHealth, GetDeviceInfo};
+use crate::sl::cmd::{SlLidarResponseDeviceHealthT, SlLidarResponseDeviceInfoT};
 use crate::sl::lidar::LidarState::Idle;
 use crate::sl::serial::SerialPortChannel;
 use crate::sl::Channel;
@@ -45,7 +46,7 @@ impl Lidar {
         self.channel.read(&mut descriptor_bytes);
 
         // TODO use a result instead
-        assert!(descriptor_bytes[0] == 0xa5 && descriptor_bytes[1] == 0x5a);
+        assert_eq!(descriptor_bytes[0..2], [0xa5, 0x5a]);
 
         let send_mode = descriptor_bytes[5] & 0b11;
         let data_type = descriptor_bytes[6];
@@ -69,21 +70,24 @@ impl Lidar {
     }
 
     pub fn get_info(&mut self) -> SlLidarResponseDeviceInfoT {
-        let req = [0xa5u8, 0x50];
-        let res = self.single_req(&req);
-
+        let res = self.single_req(&[0xa5, GetDeviceInfo as u8]);
         let data = res.data;
-        let model = data[0];
-        let firmware_version: u16 = ((data[2] as u16) << 8) | data[1] as u16;
-        println!("Firmware Version: {}.{} ", firmware_version >> 8, firmware_version & 0xff);
-        let hardware_version = data[3];
-        let serial_number: [u8; 16] = data[4..20].try_into().unwrap();
 
         SlLidarResponseDeviceInfoT {
-            model,
-            firmware_version,
-            hardware_version,
-            serial_number,
+            model: data[0],
+            firmware_version: ((data[2] as u16) << 8) | data[1] as u16,
+            hardware_version: data[3],
+            serial_number: data[4..20].try_into().unwrap(),
+        }
+    }
+
+    pub fn get_health(&mut self) -> SlLidarResponseDeviceHealthT {
+        let res = self.single_req(&[0xa5, GetDeviceHealth as u8]);
+        let data = res.data;
+
+        SlLidarResponseDeviceHealthT {
+            status: data[0],
+            error_code: ((data[2] as u16) << 8) | data[1] as u16,
         }
     }
 }

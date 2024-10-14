@@ -80,6 +80,8 @@ struct SlLidarPayloadNewBpsConfirmationT {
 }
 
 // Response
+#[derive(Debug)]
+#[repr(u8)]
 pub enum SlLidarAnsType {
     DevInfo = 0x04,
     DevHealth = 0x06,
@@ -223,13 +225,14 @@ const SL_LIDAR_CONF_MAX_DISTANCE: u8 = 0x00000060;
 const SL_LIDAR_CONF_LIDAR_MAC_ADDR: u32 = 0x00000079;
 
 #[repr(u32)]
+#[derive(Clone, Copy)]
 pub enum ConfEntry {
-    COUNT = 0x00000070,
-    US_PER_SAMPLE = 0x00000071,
-    MAX_DISTANCE = 0x00000074,
-    ANS_TYPE = 0x00000075,
-    TYPICAL = 0x0000007C,
-    NAME = 0x0000007F,
+    Count = 0x00000070,
+    UsPerSample = 0x00000071,
+    MaxDistance = 0x00000074,
+    AnsType = 0x00000075,
+    Typical = 0x0000007C,
+    Name = 0x0000007F
 }
 
 
@@ -244,7 +247,7 @@ const SL_LIDAR_EXPRESS_SCAN_SENSITIVITY_BITMAP: u8 = 5;
 
 pub(crate) struct SlLidarResponseGetLidarConf {
     pub(crate) _type: u32,
-    payload: [u8; 0],
+    pub(crate) payload: Vec<u8>,
 }
 
 struct SlLidarResponseSetLidarConf {

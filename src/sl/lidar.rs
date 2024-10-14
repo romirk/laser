@@ -1,5 +1,6 @@
+use crate::sl::cmd::ConfEntry::*;
 use crate::sl::cmd::SlLidarCmd::{GetDeviceHealth, GetDeviceInfo, GetLidarConf, GetSampleRate};
-use crate::sl::cmd::{SlLidarResponseDeviceHealthT, SlLidarResponseDeviceInfoT, SlLidarResponseSampleRateT, SlLidarResponseGetLidarConf};
+use crate::sl::cmd::{ConfEntry, SlLidarResponseDeviceHealthT, SlLidarResponseDeviceInfoT, SlLidarResponseGetLidarConf, SlLidarResponseSampleRateT};
 use crate::sl::lidar::LidarState::Idle;
 use crate::sl::serial::SerialPortChannel;
 use crate::sl::Channel;
@@ -38,12 +39,18 @@ impl Lidar {
         }
     }
 
+    fn checksum(payload: &[u8]) -> u8 {
+        payload.iter().fold(0, |acc, x| acc ^ x)
+    }
+
     fn single_req(&mut self, req: &[u8]) -> Response {
+        // println!(">>> {:x?}", req);
         self.channel.write(&req);
 
         // response header
         let mut descriptor_bytes = [0u8; 7];
         self.channel.read(&mut descriptor_bytes);
+        // print!("<<< {:x?}", &descriptor_bytes);
 
         // TODO use a result instead
         assert_eq!(descriptor_bytes[0..2], [0xa5, 0x5a]);
@@ -63,6 +70,8 @@ impl Lidar {
         // data
         let mut data = vec![0u8; descriptor.len as usize];
         self.channel.read(&mut data);
+        // println!(" {:x?}", &data);
+
         Response {
             descriptor,
             data,
@@ -101,8 +110,35 @@ impl Lidar {
         }
     }
 
-    pub fn get_lidar_conf(&mut self) -> SlLidarResponseGetLidarConf {
-        todo!();
+    pub fn get_lidar_conf(&mut self, entry: ConfEntry, payload: Option<u16>) -> SlLidarResponseGetLidarConf {
+        let mut req = [0u8; 12];
+
+        req[0] = 0xa5;
+        req[1] = GetLidarConf as u8;
+        req[3..7].copy_from_slice((entry as u32).to_le_bytes().as_ref());
+
+        match entry {
+            Count | Typical => {
+                req[2] = 4;
+                req[7] = Lidar::checksum(&req[..7]);
+            }
+            _ => {
+                req[2] = 8;
+                req[7..9].copy_from_slice(payload.unwrap().to_le_bytes().as_ref());
+                req[11] = Lidar::checksum(&req[..11]);
+            }
+        }
+
+        let res = self.single_req(&req[..(match entry {
+            Count | Typical => 8,
+            _ => 12
+        })]);
+        let data = res.data;
+
+        SlLidarResponseGetLidarConf {
+            _type: u32::from_le_bytes(data[..4].try_into().unwrap()),
+            payload: data[4..].to_owned()
+        }
     }
 }
 

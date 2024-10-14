@@ -2,30 +2,28 @@ use crate::sl::{Channel, ChannelType};
 use serialport::{new, SerialPort};
 use std::time::{Duration, Instant};
 
-struct SerialPortChannel {
+pub struct SerialPortChannel {
     path: String,
     baud: u32,
 
     close_pending: bool,
-    port: dyn SerialPort,
+    port: Box<dyn SerialPort>,
 }
 
 impl SerialPortChannel {
-    fn bind(path: String, baud: u32) -> Box<SerialPortChannel> {
+    pub fn bind(path: String, baud: u32) -> Box<SerialPortChannel> {
+        let port = new(&path, baud).timeout(Duration::from_millis(1000)).open().unwrap();
         Box::new(SerialPortChannel {
             path: path.clone(),
             baud,
             close_pending: false,
-            port: new(&path, baud),
+            port,
         })
     }
 }
 impl Channel for SerialPortChannel {
     fn open(&mut self) -> bool {
-        match self.port.open() {
-            Ok(_) => true,
-            Err(_) => false
-        }
+      true
     }
     fn close(&mut self) {
         self.close_pending = true;
@@ -53,8 +51,9 @@ impl Channel for SerialPortChannel {
 
     }
 
-    fn write(data: &[u8], size: usize) -> isize {
-        todo!()
+    fn write(&mut self, data: &[u8]) -> isize {
+        self.port.write_all(data).expect("Failed to write serial port!");
+        data.len() as isize
     }
 
     fn read(&mut self, data: &mut [u8]) -> isize {

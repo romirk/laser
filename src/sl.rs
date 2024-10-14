@@ -2,7 +2,7 @@ use std::ffi::c_float;
 
 mod cmd;
 mod types;
-mod serial;
+pub mod serial;
 
 /// LIDAR Scan Mode
 struct LidarScanMode {
@@ -70,14 +70,14 @@ struct SlamtecLidarTimingDesc {
 }
 
 /// Communication channel
-trait Channel {
+pub trait Channel {
     // IChannel methods
 
     /// Open communication channel (return true if succeed)
-    fn open(&self) -> bool;
+    fn open(&mut self) -> bool;
 
     /// Close communication channel
-    fn close(&self);
+    fn close(&mut self);
 
     /// Flush all written data to remote endpoint
     fn flush(&mut self);
@@ -90,13 +90,12 @@ trait Channel {
     fn wait_for_data(&self, size: usize, timeout_ms: u32, actual_ready: &mut usize) -> bool;
 
     /// Send data to remote endpoint
-    fn write(data: &[u8], size: usize) -> isize;
+    fn write(&mut self, data: &[u8]) -> isize;
 
     /// Read data from the channel
-    fn read(&self, data: &mut [u8]) -> isize;
+    fn read(&mut self, data: &mut [u8]) -> isize;
 
     /// Clear read cache
     fn clear_read_cache();
     fn get_channel_type() -> ChannelType;
-
 }

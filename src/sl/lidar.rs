@@ -1,5 +1,5 @@
-use crate::sl::cmd::SlLidarCmd::{GetDeviceHealth, GetDeviceInfo, GetSampleRate};
-use crate::sl::cmd::{SlLidarResponseDeviceHealthT, SlLidarResponseDeviceInfoT, SlLidarResponseSampleRateT};
+use crate::sl::cmd::SlLidarCmd::{GetDeviceHealth, GetDeviceInfo, GetLidarConf, GetSampleRate};
+use crate::sl::cmd::{SlLidarResponseDeviceHealthT, SlLidarResponseDeviceInfoT, SlLidarResponseSampleRateT, SlLidarResponseGetLidarConf};
 use crate::sl::lidar::LidarState::Idle;
 use crate::sl::serial::SerialPortChannel;
 use crate::sl::Channel;
@@ -99,6 +99,10 @@ impl Lidar {
             std_sample_duration_us: ((data[1] as u16) << 8) | data[0] as u16,
             express_sample_duration_us: ((data[3] as u16) << 8) | data[2] as u16,
         }
+    }
+
+    pub fn get_lidar_conf(&mut self) -> SlLidarResponseGetLidarConf {
+        todo!();
     }
 }
 

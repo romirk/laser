@@ -17,6 +17,6 @@ fn main() {
     let rate = lidar.get_sample_rate();
 
     println!("\nModel {} version {}.{} HW {}", info.model, info.firmware_version >> 8, info.firmware_version & 0xff, info.hardware_version);
-    println!("Status: {}", ["good", "warning", "error"].get(health.status as usize).unwrap());
+    println!("Status: {}", ["healthy", "warning", "error"].get(health.status as usize).unwrap());
     println!("Sample rate:\n\tstd: {}us\n\texp: {}us", rate.std_sample_duration_us, rate.express_sample_duration_us);
 }

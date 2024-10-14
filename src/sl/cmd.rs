@@ -79,7 +79,7 @@ struct SlLidarPayloadNewBpsConfirmationT {
 }
 
 // Response
-enum SlLidarAnsType {
+pub enum SlLidarAnsType {
     DevInfo = 0x04,
     DevHealth = 0x06,
 
@@ -252,11 +252,11 @@ struct SlLidarResponseSetLidarConf {
     result: u32,
 }
 
-struct SlLidarResponseDeviceInfoT {
-    model: u8,
-    firmware_version: u16,
-    hardware_version: u8,
-    serialnum: [u8; 16],
+pub struct SlLidarResponseDeviceInfoT {
+    pub(crate) model: u8,
+    pub(crate) firmware_version: u16,
+    pub(crate) hardware_version: u8,
+    pub(crate) serial_number: [u8; 16],
 }
 
 struct SlLidarResponseDeviceHealthT {

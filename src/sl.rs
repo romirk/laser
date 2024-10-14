@@ -1,8 +1,9 @@
 use std::ffi::c_float;
+use crate::sl::serial::SerialPortChannel;
 
-mod cmd;
-mod types;
 pub mod serial;
+pub mod cmd;
+pub mod lidar;
 
 /// LIDAR Scan Mode
 struct LidarScanMode {
@@ -99,3 +100,4 @@ pub trait Channel {
     fn clear_read_cache();
     fn get_channel_type() -> ChannelType;
 }
+

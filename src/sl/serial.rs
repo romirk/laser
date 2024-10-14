@@ -23,7 +23,7 @@ impl SerialPortChannel {
 }
 impl Channel for SerialPortChannel {
     fn open(&mut self) -> bool {
-      true
+        true
     }
     fn close(&mut self) {
         self.close_pending = true;
@@ -48,7 +48,6 @@ impl Channel for SerialPortChannel {
                 return false;
             }
         }
-
     }
 
     fn write(&mut self, data: &[u8]) -> isize {

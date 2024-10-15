@@ -1,9 +1,13 @@
 mod sl;
 
-use crate::sl::cmd::ConfEntry::{Count, MaxDistance, Name, Typical, UsPerSample};
+use crate::sl::cmd::ScanModeConfEntry::{Count, Typical};
+use crate::sl::cmd::DEFAULT_MOTOR_SPEED;
 use sl::lidar::Lidar;
 use sl::Channel;
+use std::io;
 use std::io::Write;
+use std::thread::sleep;
+use std::time::Duration;
 
 fn read_le_u32(input: &mut &[u8]) -> u32 {
     let (int_bytes, rest) = input.split_at(size_of::<u32>());
@@ -26,24 +30,27 @@ fn main() {
 
     println!("Modes: {}\nTypical: {}\n", modes, typical);
 
-    for i in 0..modes {
+    // for i in 0..modes {
+    //
+    //     let us_per_sample = u32::from_le_bytes(lidar.get_lidar_conf(UsPerSample, Some(i)).payload.try_into().unwrap()) / (1 << 8);
+    //     let max_distance = u32::from_le_bytes(lidar.get_lidar_conf(MaxDistance, Some(i)).payload.try_into().unwrap()) / (1 << 8);
+    //
+    //     let name = String::from_utf8(lidar.get_lidar_conf(Name, Some(i)).payload).unwrap();
+    //
+    //     println!("Mode {} - {}", i, name);
+    //     println!("{:-^1$}", "", name.len() + 8);
+    //     println!("   us/sample: {}", us_per_sample);
+    //     println!("max distance: {}m", max_distance);
+    //     println!();
+    // }
+}
 
-        let us_per_sample = u32::from_le_bytes(lidar.get_lidar_conf(UsPerSample, Some(i)).payload.try_into().unwrap()) / (1 << 8);
-        let max_distance = u32::from_le_bytes(lidar.get_lidar_conf(MaxDistance, Some(i)).payload.try_into().unwrap()) / (1 << 8);
-        // let ans_type = match u32::from_le_bytes(lidar.get_lidar_conf(MaxDistance, Some(i)).payload.try_into().unwrap()) / (1 << 8) {
-        //     0x81 => Measurement,
-        //     0x82 => MeasurementCapsuled,
-        //     0x83 => MeasurementHQ,
-        //     x => panic!("bad measurement type {}", x),
-        // };
-        let name = String::from_utf8(lidar.get_lidar_conf(Name, Some(i)).payload).unwrap();
-
-        println!("Mode {} - {}", i, name);
-        println!("{:-^1$}", "", name.len() + 8);
-        println!("   us/sample: {}", us_per_sample);
-        println!("max distance: {}m", max_distance);
-        // println!("    ans type: {:?}", ans_type);
-
-        println!();
+fn countdown(secs: i32) {
+    print!("\x1b[?25l");
+    for i in 0..secs {
+        print!("\r{}", secs - i);
+        io::stdout().flush().unwrap();
+        sleep(Duration::from_secs(1));
     }
+    print!("\x1b[2K\r\x1b[?25h");
 }

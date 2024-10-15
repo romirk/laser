@@ -1,5 +1,5 @@
 // Commands
-const DEFAULT_MOTOR_SPEED: u16 = 0xFFFF;
+pub const DEFAULT_MOTOR_SPEED: u16 = 0xFFFF;
 const SL_LIDAR_AUTOBAUD_MAGICBYTE: u8 = 0x41;
 
 #[repr(u8)]
@@ -226,7 +226,7 @@ const SL_LIDAR_CONF_LIDAR_MAC_ADDR: u32 = 0x00000079;
 
 #[repr(u32)]
 #[derive(Clone, Copy)]
-pub enum ConfEntry {
+pub enum ScanModeConfEntry {
     Count = 0x00000070,
     UsPerSample = 0x00000071,
     MaxDistance = 0x00000074,

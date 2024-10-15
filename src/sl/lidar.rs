@@ -1,6 +1,8 @@
-use crate::sl::cmd::ConfEntry::*;
-use crate::sl::cmd::SlLidarCmd::{GetDeviceHealth, GetDeviceInfo, GetLidarConf, GetSampleRate};
-use crate::sl::cmd::{ConfEntry, SlLidarResponseDeviceHealthT, SlLidarResponseDeviceInfoT, SlLidarResponseGetLidarConf, SlLidarResponseSampleRateT};
+use std::thread::sleep;
+use std::time::Duration;
+use crate::sl::cmd::ScanModeConfEntry::*;
+use crate::sl::cmd::SlLidarCmd::{GetDeviceHealth, GetDeviceInfo, GetLidarConf, GetSampleRate, HQMotorSpeedCtrl, Reset, Stop};
+use crate::sl::cmd::{ScanModeConfEntry, SlLidarResponseDeviceHealthT, SlLidarResponseDeviceInfoT, SlLidarResponseGetLidarConf, SlLidarResponseSampleRateT};
 use crate::sl::lidar::LidarState::Idle;
 use crate::sl::serial::SerialPortChannel;
 use crate::sl::Channel;
@@ -77,6 +79,22 @@ impl Lidar {
             data,
         }
     }
+    pub fn stop(&mut self) {
+        self.channel.write(&[0xa5, Stop as u8]);
+        sleep(Duration::from_millis(1));
+    }
+
+    pub fn reset(&mut self) {
+        self.channel.write(&[0xa5, Reset as u8]);
+        sleep(Duration::from_millis(2));
+    }
+
+    fn set_motor_speed(&mut self, speed: u16) {
+        let speed_bytes = speed.to_le_bytes();
+        let mut req = [0xa5, HQMotorSpeedCtrl as u8, 0x02, speed_bytes[0], speed_bytes[1], 0];
+        req[5] = Lidar::checksum(&req);
+        self.channel.write(&req);
+    }
 
     pub fn get_info(&mut self) -> SlLidarResponseDeviceInfoT {
         let res = self.single_req(&[0xa5, GetDeviceInfo as u8]);
@@ -110,7 +128,7 @@ impl Lidar {
         }
     }
 
-    pub fn get_lidar_conf(&mut self, entry: ConfEntry, payload: Option<u16>) -> SlLidarResponseGetLidarConf {
+    pub fn get_lidar_conf(&mut self, entry: ScanModeConfEntry, payload: Option<u16>) -> SlLidarResponseGetLidarConf {
         let mut req = [0u8; 12];
 
         req[0] = 0xa5;
@@ -140,5 +158,6 @@ impl Lidar {
             payload: data[4..].to_owned()
         }
     }
+
 }
 

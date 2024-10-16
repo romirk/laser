@@ -3,70 +3,22 @@ use std::ffi::c_float;
 pub mod serial;
 pub mod cmd;
 pub mod lidar;
-
-/// LIDAR Scan Mode
-struct LidarScanMode {
-    /// Mode id
-    id: u16,
-
-    /// Time cost for one measurement (in microseconds)
-    us_per_sample: c_float,
-
-    /// Max distance in this scan mode (in meters)
-    max_distance: c_float,
-
-    /// The answer command code for this scan mode
-    ans_type: u8,
-
-    /// The name of scan mode (padding with 0 if less than 64 characters)
-    scan_mode: [char; 64],
-}
-
-enum LIDARTechnologyType {
-    LidarTechnologyUnknown = 0,
-    LidarTechnologyTriangulation = 1,
-    LidarTechnologyDTOF = 2,
-    LidarTechnologyETOF = 3,
-    LidarTechnologyFMCW = 4,
-}
-
-enum LIDARMajorType {
-    LidarMajorTypeUnknown = 0,
-    LidarMajorTypeASeries = 1,
-    LidarMajorTypeSSeries = 2,
-    LidarMajorTypeTSeries = 3,
-    LidarMajorTypeMSeries = 4,
-    LidarMajorTypeCSeries = 6,
-}
-
-enum LIDARInterfaceType {
-    LidarInterfaceUART = 0,
-    LidarInterfaceEthernet = 1,
-    LidarInterfaceUSB = 2,
-    LidarInterfaceCanbus = 5,
-
-    LidarInterfaceUnknown = 0xFFFF,
-}
-
-enum MotorCtrlSupport
-{
-    MotorCtrlSupportNone = 0,
-    MotorCtrlSupportPwm = 1,
-    MotorCtrlSupportRpm = 2,
-}
+mod error;
 
 enum ChannelType {
     ChannelTypeSerialPort = 0x0,
     ChannelTypeTCP = 0x1,
     ChannelTypeUDP = 0x2,
 }
+pub struct ResponseDescriptor {
+    pub len: u32,
+    pub send_mode: u8,
+    pub data_type: u8,
+}
 
-struct SlamtecLidarTimingDesc {
-    sample_duration_us: u32,
-    native_baudrate: u32,
-    linkage_delay_us: u32,
-    native_interface_type: LIDARInterfaceType,
-    native_timestamp_support: bool,
+pub struct Response {
+    pub descriptor: ResponseDescriptor,
+    pub data: Vec<u8>,
 }
 
 /// Communication channel
@@ -100,3 +52,61 @@ pub trait Channel {
     fn get_channel_type() -> ChannelType;
 }
 
+/// LIDAR Scan Mode
+pub struct LidarScanMode {
+    /// Mode id
+    id: u16,
+
+    /// Time cost for one measurement (in microseconds)
+    us_per_sample: c_float,
+
+    /// Max distance in this scan mode (in meters)
+    max_distance: c_float,
+
+    /// The answer command code for this scan mode
+    ans_type: u8,
+
+    /// The name of scan mode (padding with 0 if less than 64 characters)
+    scan_mode: [char; 64],
+}
+enum LIDARTechnologyType {
+    LidarTechnologyUnknown = 0,
+    LidarTechnologyTriangulation = 1,
+    LidarTechnologyDTOF = 2,
+    LidarTechnologyETOF = 3,
+    LidarTechnologyFMCW = 4,
+}
+
+enum LIDARMajorType {
+    LidarMajorTypeUnknown = 0,
+    LidarMajorTypeASeries = 1,
+    LidarMajorTypeSSeries = 2,
+    LidarMajorTypeTSeries = 3,
+    LidarMajorTypeMSeries = 4,
+    LidarMajorTypeCSeries = 6,
+}
+
+enum LIDARInterfaceType {
+    LidarInterfaceUART = 0,
+    LidarInterfaceEthernet = 1,
+    LidarInterfaceUSB = 2,
+    LidarInterfaceCanbus = 5,
+
+    LidarInterfaceUnknown = 0xFFFF,
+}
+
+enum MotorCtrlSupport
+{
+    MotorCtrlSupportNone = 0,
+    MotorCtrlSupportPwm = 1,
+    MotorCtrlSupportRpm = 2,
+}
+
+
+struct SlamtecLidarTimingDesc {
+    sample_duration_us: u32,
+    native_baudrate: u32,
+    linkage_delay_us: u32,
+    native_interface_type: LIDARInterfaceType,
+    native_timestamp_support: bool,
+}

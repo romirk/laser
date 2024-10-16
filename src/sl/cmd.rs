@@ -246,7 +246,7 @@ const SL_LIDAR_EXPRESS_SCAN_STABILITY_BITMAP: u8 = 4;
 const SL_LIDAR_EXPRESS_SCAN_SENSITIVITY_BITMAP: u8 = 5;
 
 pub(crate) struct SlLidarResponseGetLidarConf {
-    pub(crate) _type: u32,
+    pub(crate) conf_type: u32,
     pub(crate) payload: Vec<u8>,
 }
 

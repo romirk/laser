@@ -11,14 +11,27 @@ pub struct SerialPortChannel {
 }
 
 impl SerialPortChannel {
-    pub fn bind(path: String, baud: u32) -> Box<SerialPortChannel> {
-        let port = serialport::new(&path, baud).timeout(Duration::from_millis(1000)).open().unwrap();
-        Box::new(SerialPortChannel {
-            path: path.clone(),
-            baud,
-            close_pending: false,
-            port,
-        })
+    pub fn bind(path: String, baud: u32) -> Result<Box<SerialPortChannel>, serialport::Error> {
+        match serialport::new(&path, baud).timeout(Duration::from_millis(1000)).open() {
+            Ok(port) => Ok(Box::new(SerialPortChannel {
+                path: path.clone(),
+                baud,
+                close_pending: false,
+                port,
+            })),
+            Err(err) => Err(err.into())
+        }
+    }
+}
+
+impl Clone for SerialPortChannel {
+    fn clone(&self) -> Self {
+        SerialPortChannel {
+            path: self.path.clone(),
+            baud: self.baud,
+            close_pending: self.close_pending,
+            port: self.port.try_clone().unwrap(),
+        }
     }
 }
 impl Channel for SerialPortChannel {

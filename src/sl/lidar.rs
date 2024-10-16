@@ -1,11 +1,14 @@
-use std::thread::sleep;
-use std::time::Duration;
 use crate::sl::cmd::ScanModeConfEntry::*;
 use crate::sl::cmd::SlLidarCmd::{GetDeviceHealth, GetDeviceInfo, GetLidarConf, GetSampleRate, HQMotorSpeedCtrl, Reset, Stop};
 use crate::sl::cmd::{ScanModeConfEntry, SlLidarResponseDeviceHealthT, SlLidarResponseDeviceInfoT, SlLidarResponseGetLidarConf, SlLidarResponseSampleRateT};
-use crate::sl::lidar::LidarState::Idle;
+use crate::sl::lidar::LidarState::{Idle, Scanning};
 use crate::sl::serial::SerialPortChannel;
-use crate::sl::Channel;
+use crate::sl::{Channel, Response, ResponseDescriptor};
+use std::collections::VecDeque;
+use std::sync::{Arc, Mutex};
+use std::thread;
+use std::thread::sleep;
+use std::time::Duration;
 
 const S1_BAUD: u32 = 256000;
 
@@ -16,28 +19,31 @@ enum LidarState {
     ProtectionStop,
 }
 
+struct Sample {
+    start: bool,
+    intensity: u8,
+    angle: u16,
+    distance: u16,
+}
+
 pub struct Lidar {
-    state: LidarState,
+    state: Arc<Mutex<LidarState>>,
     channel: Box<SerialPortChannel>,
-}
 
-pub struct ResponseDescriptor {
-    pub len: u32,
-    pub send_mode: u8,
-    pub data_type: u8,
+    thread_handle: Option<thread::JoinHandle<()>>,
+    scan_buffer: Arc<Mutex<VecDeque<Sample>>>,
 }
-
-pub struct Response {
-    pub descriptor: ResponseDescriptor,
-    pub data: Vec<u8>,
-}
-
 
 impl Lidar {
     pub fn init(port: String) -> Lidar {
-        Lidar {
-            state: Idle,
-            channel: SerialPortChannel::bind(port, S1_BAUD),
+        match SerialPortChannel::bind(port, S1_BAUD) {
+            Ok(channel) => Lidar {
+                state: Arc::new(Mutex::new(Idle)),
+                channel,
+                thread_handle: None,
+                scan_buffer: Arc::new(Mutex::new(VecDeque::with_capacity(2048))),
+            },
+            Err(e) => panic!("Unable to bind serial port: {}", e),
         }
     }
 
@@ -48,10 +54,13 @@ impl Lidar {
     fn single_req(&mut self, req: &[u8]) -> Response {
         // println!(">>> {:x?}", req);
         self.channel.write(&req);
+        Lidar::rx(self.channel.clone())
+    }
 
+    fn rx(mut channel: Box<SerialPortChannel>) -> Response {
         // response header
         let mut descriptor_bytes = [0u8; 7];
-        self.channel.read(&mut descriptor_bytes);
+        channel.read(&mut descriptor_bytes);
         // print!("<<< {:x?}", &descriptor_bytes);
 
         // TODO use a result instead
@@ -61,7 +70,7 @@ impl Lidar {
         let data_type = descriptor_bytes[6];
 
         descriptor_bytes[5] >>= 2;
-        let len = crate::read_le_u32(&mut &descriptor_bytes[2..6]);
+        let len = crate::util::read_le_u32(&mut &descriptor_bytes[2..6]);
 
         let descriptor = ResponseDescriptor {
             len,
@@ -71,7 +80,7 @@ impl Lidar {
 
         // data
         let mut data = vec![0u8; descriptor.len as usize];
-        self.channel.read(&mut data);
+        channel.read(&mut data);
         // println!(" {:x?}", &data);
 
         Response {
@@ -79,6 +88,7 @@ impl Lidar {
             data,
         }
     }
+
     pub fn stop(&mut self) {
         self.channel.write(&[0xa5, Stop as u8]);
         sleep(Duration::from_millis(1));
@@ -154,10 +164,45 @@ impl Lidar {
         let data = res.data;
 
         SlLidarResponseGetLidarConf {
-            _type: u32::from_le_bytes(data[..4].try_into().unwrap()),
-            payload: data[4..].to_owned()
+            conf_type: u32::from_le_bytes(data[..4].try_into().unwrap()),
+            payload: data[4..].to_owned(),
         }
     }
 
+    pub fn start_scan(&mut self) {
+        {
+            *self.state.lock().unwrap() = Scanning;
+        }
+
+        let buffer = Arc::clone(&self.scan_buffer);
+        let state = Arc::clone(&self.state);
+        let channel = self.channel.clone();
+
+        // signal lidar to begin a scan
+        self.channel.write(&[0xa5, Scanning as u8]);
+
+        // start reader thread
+        self.thread_handle = Some(thread::spawn(move || {
+            loop {
+                match *state.lock().unwrap() {
+                    Scanning => {
+                        let data = Lidar::rx(channel.clone()).data;
+
+                        // checks
+                        assert_eq!(data[0] & 0b01, !(data[0] & 0b10), "start bit parity error");
+                        assert_eq!(data[1] & 0b01, 1, "check bit parity error");
+
+                        buffer.lock().unwrap().push_back(Sample {
+                            start: (data[0] & 1) != 0,
+                            intensity: data[0] >> 2,
+                            angle: ((data[2] as u16) << 8) | (data[1] as u16 >> 1),
+                            distance: ((data[4] as u16) << 8) | data[3] as u16,
+                        });
+                    }
+                    _ => break
+                }
+            }
+        }));
+    }
 }
 

@@ -9,10 +9,10 @@ pub fn read_le_u32(input: &mut &[u8]) -> u32 {
     u32::from_le_bytes(int_bytes.try_into().unwrap())
 }
 
-fn countdown(secs: i32) {
+pub fn countdown(secs: i32) {
     print!("\x1b[?25l");
     for i in 0..secs {
-        print!("\r{}", secs - i);
+        print!("\x1b[2K\r{}", secs - i);
         io::stdout().flush().unwrap();
         sleep(Duration::from_secs(1));
     }

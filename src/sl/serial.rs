@@ -1,5 +1,6 @@
 use crate::sl::{Channel, ChannelType};
 use serialport::SerialPort;
+use std::io::Write;
 use std::time::{Duration, Instant};
 
 pub struct SerialPortChannel {
@@ -20,17 +21,6 @@ impl SerialPortChannel {
                 port,
             })),
             Err(err) => Err(err.into())
-        }
-    }
-}
-
-impl Clone for SerialPortChannel {
-    fn clone(&self) -> Self {
-        SerialPortChannel {
-            path: self.path.clone(),
-            baud: self.baud,
-            close_pending: self.close_pending,
-            port: self.port.try_clone().unwrap(),
         }
     }
 }
@@ -63,14 +53,18 @@ impl Channel for SerialPortChannel {
         }
     }
 
-    fn write(&mut self, data: &[u8]) -> isize {
-        self.port.write_all(data).expect("Failed to write serial port!");
-        data.len() as isize
+    fn write(&mut self, data: &[u8]) -> Result<(), serialport::Error> {
+        match self.port.write_all(data) {
+            Ok(()) => Ok(()),
+            Err(err) => Err(err.into()),
+        }
     }
 
-    fn read(&mut self, data: &mut [u8]) -> isize {
-        self.port.read_exact(data).expect("Failed to read serial port!");
-        data.len() as isize
+    fn read(&mut self, data: &mut [u8]) -> Result<(), serialport::Error> {
+        match self.port.read_exact(data) {
+            Ok(()) => Ok(()),
+            Err(err) => Err(err.into()),
+        }
     }
 
     fn clear_read_cache() {

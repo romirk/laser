@@ -1,17 +1,22 @@
 use crate::sl::cmd::ScanModeConfEntry::*;
-use crate::sl::cmd::SlLidarCmd::{GetDeviceHealth, GetDeviceInfo, GetLidarConf, GetSampleRate, HQMotorSpeedCtrl, Reset, Stop};
+use crate::sl::cmd::SlLidarCmd::{GetDeviceHealth, GetDeviceInfo, GetLidarConf, GetSampleRate, HQMotorSpeedCtrl, Reset, Scan, Stop};
 use crate::sl::cmd::{ScanModeConfEntry, SlLidarResponseDeviceHealthT, SlLidarResponseDeviceInfoT, SlLidarResponseGetLidarConf, SlLidarResponseSampleRateT};
+use crate::sl::error::RxError;
+use crate::sl::error::RxError::{Corrupted, PortError, TimedOut};
 use crate::sl::lidar::LidarState::{Idle, Scanning};
 use crate::sl::serial::SerialPortChannel;
 use crate::sl::{Channel, Response, ResponseDescriptor};
+use std::collections::vec_deque::Iter;
 use std::collections::VecDeque;
-use std::sync::{Arc, Mutex};
+use std::iter::Take;
+use std::sync::{Arc, Mutex, MutexGuard};
 use std::thread;
 use std::thread::sleep;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 const S1_BAUD: u32 = 256000;
 
+#[derive(Debug, Clone)]
 enum LidarState {
     Idle,
     Processing,
@@ -19,19 +24,20 @@ enum LidarState {
     ProtectionStop,
 }
 
-struct Sample {
+#[derive(Debug, Clone)]
+pub struct Sample {
     start: bool,
     intensity: u8,
-    angle: u16,
-    distance: u16,
+    pub(crate) angle: u16,
+    pub(crate) distance: u16,
 }
 
 pub struct Lidar {
     state: Arc<Mutex<LidarState>>,
-    channel: Box<SerialPortChannel>,
+    channel: Arc<Mutex<SerialPortChannel>>,
 
     thread_handle: Option<thread::JoinHandle<()>>,
-    scan_buffer: Arc<Mutex<VecDeque<Sample>>>,
+    scan_buffer: Arc<Mutex<Vec<Sample>>>,
 }
 
 impl Lidar {
@@ -39,9 +45,9 @@ impl Lidar {
         match SerialPortChannel::bind(port, S1_BAUD) {
             Ok(channel) => Lidar {
                 state: Arc::new(Mutex::new(Idle)),
-                channel,
+                channel: Arc::new(Mutex::from(*channel)),
                 thread_handle: None,
-                scan_buffer: Arc::new(Mutex::new(VecDeque::with_capacity(2048))),
+                scan_buffer: Arc::new(Mutex::new(Vec::with_capacity(2048))),
             },
             Err(e) => panic!("Unable to bind serial port: {}", e),
         }
@@ -51,25 +57,30 @@ impl Lidar {
         payload.iter().fold(0, |acc, x| acc ^ x)
     }
 
-    fn single_req(&mut self, req: &[u8]) -> Response {
-        // println!(">>> {:x?}", req);
-        self.channel.write(&req);
-        Lidar::rx(self.channel.clone())
+    fn single_req(&mut self, req: &[u8]) -> Result<Response, RxError> {
+        let mut channel = self.channel.lock().unwrap();
+        match channel.write(&req) {
+            Ok(()) => Lidar::rx(channel),
+            Err(e) => Err(PortError(e))
+        }
     }
 
-    fn rx(mut channel: Box<SerialPortChannel>) -> Response {
+    fn rx(mut channel: MutexGuard<SerialPortChannel>) -> Result<Response, RxError> {
         // response header
         let mut descriptor_bytes = [0u8; 7];
-        channel.read(&mut descriptor_bytes);
-        // print!("<<< {:x?}", &descriptor_bytes);
+        match channel.read(&mut descriptor_bytes) {
+            Ok(()) => {}
+            Err(e) => return Err(PortError(e))
+        }
 
-        // TODO use a result instead
-        assert_eq!(descriptor_bytes[0..2], [0xa5, 0x5a]);
+        if descriptor_bytes[0..2] != [0xa5, 0x5a] {
+            return Err(Corrupted(descriptor_bytes));
+        }
 
-        let send_mode = descriptor_bytes[5] & 0b11;
+        let send_mode = (descriptor_bytes[5] & 0b11000000) >> 6;
         let data_type = descriptor_bytes[6];
 
-        descriptor_bytes[5] >>= 2;
+        descriptor_bytes[5] = descriptor_bytes[5] ^ (descriptor_bytes[5] & 0b11000000);
         let len = crate::util::read_le_u32(&mut &descriptor_bytes[2..6]);
 
         let descriptor = ResponseDescriptor {
@@ -80,34 +91,38 @@ impl Lidar {
 
         // data
         let mut data = vec![0u8; descriptor.len as usize];
-        channel.read(&mut data);
-        // println!(" {:x?}", &data);
+        match channel.read(&mut data) {
+            Ok(()) => {}
+            Err(e) => return Err(PortError(e))
+        }
 
-        Response {
+        Ok(Response {
             descriptor,
             data,
+        })
+    }
+
+    pub fn stop(&mut self, reset: bool) {
+        match self.channel.lock().unwrap().write(&[0xa5, (if reset { Reset } else { Stop }) as u8]) {
+            Ok(()) => {
+                *self.state.lock().unwrap() = Idle;
+                sleep(Duration::from_millis(2));
+            }
+            Err(e) => panic!("Unable to stop lidar: {}", e),
         }
     }
 
-    pub fn stop(&mut self) {
-        self.channel.write(&[0xa5, Stop as u8]);
-        sleep(Duration::from_millis(1));
-    }
-
-    pub fn reset(&mut self) {
-        self.channel.write(&[0xa5, Reset as u8]);
-        sleep(Duration::from_millis(2));
-    }
+    pub fn reset(&mut self) { self.stop(true); }
 
     fn set_motor_speed(&mut self, speed: u16) {
         let speed_bytes = speed.to_le_bytes();
         let mut req = [0xa5, HQMotorSpeedCtrl as u8, 0x02, speed_bytes[0], speed_bytes[1], 0];
         req[5] = Lidar::checksum(&req);
-        self.channel.write(&req);
+        self.channel.lock().unwrap().write(&req).expect("Set motor speed failed");
     }
 
     pub fn get_info(&mut self) -> SlLidarResponseDeviceInfoT {
-        let res = self.single_req(&[0xa5, GetDeviceInfo as u8]);
+        let res = self.single_req(&[0xa5, GetDeviceInfo as u8]).expect("Could not read device info");
         let data = res.data;
 
         SlLidarResponseDeviceInfoT {
@@ -119,7 +134,7 @@ impl Lidar {
     }
 
     pub fn get_health(&mut self) -> SlLidarResponseDeviceHealthT {
-        let res = self.single_req(&[0xa5, GetDeviceHealth as u8]);
+        let res = self.single_req(&[0xa5, GetDeviceHealth as u8]).expect("Could not read device health");
         let data = res.data;
 
         SlLidarResponseDeviceHealthT {
@@ -129,7 +144,7 @@ impl Lidar {
     }
 
     pub fn get_sample_rate(&mut self) -> SlLidarResponseSampleRateT {
-        let res = self.single_req(&[0xa5, GetSampleRate as u8]);
+        let res = self.single_req(&[0xa5, GetSampleRate as u8]).expect("Could not read sample rate");
         let data = res.data;
 
         SlLidarResponseSampleRateT {
@@ -160,7 +175,7 @@ impl Lidar {
         let res = self.single_req(&req[..(match entry {
             Count | Typical => 8,
             _ => 12
-        })]);
+        })]).expect("Could not read lidar conf");
         let data = res.data;
 
         SlLidarResponseGetLidarConf {
@@ -170,39 +185,108 @@ impl Lidar {
     }
 
     pub fn start_scan(&mut self) {
-        {
-            *self.state.lock().unwrap() = Scanning;
-        }
-
-        let buffer = Arc::clone(&self.scan_buffer);
-        let state = Arc::clone(&self.state);
-        let channel = self.channel.clone();
-
         // signal lidar to begin a scan
-        self.channel.write(&[0xa5, Scanning as u8]);
+        let buffer = Arc::clone(&self.scan_buffer);
+        let channel_arc = self.channel.clone();
 
-        // start reader thread
-        self.thread_handle = Some(thread::spawn(move || {
-            loop {
-                match *state.lock().unwrap() {
-                    Scanning => {
-                        let data = Lidar::rx(channel.clone()).data;
+        match (|| { return self.channel.lock().unwrap().write(&[0xa5, Scan as u8]); })() {
+            Ok(()) => {
+                *self.state.lock().unwrap() = Scanning;
 
-                        // checks
-                        assert_eq!(data[0] & 0b01, !(data[0] & 0b10), "start bit parity error");
-                        assert_eq!(data[1] & 0b01, 1, "check bit parity error");
+                let state = Arc::clone(&self.state);
 
-                        buffer.lock().unwrap().push_back(Sample {
-                            start: (data[0] & 1) != 0,
-                            intensity: data[0] >> 2,
-                            angle: ((data[2] as u16) << 8) | (data[1] as u16 >> 1),
-                            distance: ((data[4] as u16) << 8) | data[3] as u16,
-                        });
+                sleep(Duration::from_millis(1000));
+
+                // start reader thread
+                self.thread_handle = Some(thread::spawn(move || {
+                    let mut seeking = true;
+                    let mut descriptor = [0u8; 7];
+                    {
+                        channel_arc.lock().unwrap().read(&mut descriptor).expect("missing descriptor");
                     }
-                    _ => break
-                }
+                    loop {
+                        let mode = state.lock().unwrap().clone();
+                        match mode {
+                            Scanning => {
+                                match channel_arc.try_lock() {
+                                    Err(_) => {
+                                        sleep(Duration::from_millis(100));
+                                        continue;
+                                    }
+                                    Ok(mut channel) => {
+                                        let mut data = [0u8; 5];
+                                        match channel.read(&mut data) {
+                                            Err(err) => {
+                                                println!("{}", err);
+                                                continue;
+                                            }
+                                            Ok(()) => {}
+                                        }
+
+                                        // checks
+                                        if !(data[0] & 0b01 == !data[0] & 0b10 && data[1] & 0b01 == 1) {
+                                            println!("parity failed: {:x?}", data);
+                                        }
+
+                                        let sample = Sample {
+                                            start: (data[0] & 1) != 0,
+                                            intensity: data[0] >> 2,
+                                            angle: (((data[2] as u16) << 8) | (data[1] as u16 >> 1)) / 64,
+                                            distance: (((data[4] as u16) << 8) | data[3] as u16) / 4,
+                                        };
+
+                                        if seeking && !sample.start { continue; }
+                                        seeking = false;
+                                        match buffer.lock() {
+                                            Ok(mut buf) => { buf.push(sample); }
+                                            Err(_) => { println!("Failed to lock buffer"); }
+                                        }
+                                    }
+                                }
+                            }
+                            mode => {
+                                println!("Not scanning: {:?}", mode);
+                                break;
+                            }
+                        }
+                    }
+                }));
             }
-        }));
+            Err(e) => { panic!("{:?}", e) }
+        }
+    }
+    // pub fn get_sample(&self) -> Result<Sample, RxError> {
+    //     let start = Instant::now();
+    //     let timeout = Duration::from_millis(10000);
+    //     loop {
+    //         {
+    //             let head = self.scan_buffer.lock().unwrap().pop_front();
+    //             match head {
+    //                 None => {
+    //                     if start.elapsed() > timeout { return Err(TimedOut); }
+    //                 }
+    //                 Some(sample) => { return Ok(sample); }
+    //             }
+    //         }
+    //         sleep(Duration::from_millis(1000));
+    //     }
+    // }
+
+    pub fn get_n_samples(&self, n: u32) -> Vec<Sample> {
+        loop {
+            {
+                let buffer = self.scan_buffer.lock().unwrap();
+                if buffer.len() >= n as usize { break; }
+            }
+            sleep(Duration::from_secs(1));
+        }
+        (*self.scan_buffer.lock().unwrap()).clone().into_iter().take(n as usize).collect()
+    }
+
+    pub fn join(&mut self) {
+        if let Some(handle) = self.thread_handle.take() {
+            handle.join().unwrap();
+        }
     }
 }
 

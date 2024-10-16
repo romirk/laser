@@ -10,12 +10,14 @@ enum ChannelType {
     ChannelTypeTCP = 0x1,
     ChannelTypeUDP = 0x2,
 }
+#[derive(Debug)]
 pub struct ResponseDescriptor {
     pub len: u32,
     pub send_mode: u8,
     pub data_type: u8,
 }
 
+#[derive(Debug)]
 pub struct Response {
     pub descriptor: ResponseDescriptor,
     pub data: Vec<u8>,
@@ -42,10 +44,10 @@ pub trait Channel {
     fn wait_for_data(&self, size: usize, timeout_ms: u32, actual_ready: &mut usize) -> bool;
 
     /// Send data to remote endpoint
-    fn write(&mut self, data: &[u8]) -> isize;
+    fn write(&mut self, data: &[u8]) ->  Result<(), serialport::Error>;
 
     /// Read data from the channel
-    fn read(&mut self, data: &mut [u8]) -> isize;
+    fn read(&mut self, data: &mut [u8]) ->  Result<(), serialport::Error>;
 
     /// Clear read cache
     fn clear_read_cache();

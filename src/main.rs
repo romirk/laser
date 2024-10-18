@@ -36,7 +36,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     pixel_data[HEIGHT / 2 * WIDTH + WIDTH / 2] = 0xff;
 
     /// number of samples
-    const N: usize = 100000;
+    const N: usize = 10000;
 
     println!("Starting scan...");
     let rx = lidar.start_scan();

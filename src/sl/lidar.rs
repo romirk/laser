@@ -250,7 +250,7 @@ impl Lidar {
                 }
             }
 
-            const BATCH: usize = 100;
+            const BATCH: usize = 256;
             let mut data = [0u8; 5 * BATCH];
 
             match channel_arc.try_lock() {
@@ -273,15 +273,10 @@ impl Lidar {
 
                 // checks
                 let s = slice[0] & 0b11;
-                if s == 0b11 || s == 0b00 {
+                if s == 0b11 || s == 0b00 || slice[1] & 0b01 != 1 {
                     eprintln!("parity failed: {:x?}", slice);
                     continue;
                 }
-                // if slice[1] & 0b01 == 1 {
-                //     eprintln!("check failed: {:x?}", slice);
-                //     continue;
-                // }
-
 
                 let sample = Sample {
                     start: (slice[0] & 1) != 0,

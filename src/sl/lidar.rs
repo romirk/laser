@@ -23,7 +23,7 @@ enum LidarState {
 
 #[derive(Debug, Clone)]
 pub struct Sample {
-    start: bool,
+    pub(crate) start: bool,
     intensity: u8,
     pub(crate) angle: u16,
     pub(crate) distance: u16,
@@ -203,7 +203,7 @@ impl Lidar {
         }
     }
 
-    fn reader_thread(buffer: Arc<Mutex<Vec<Sample>>>, channel_arc: Arc<Mutex<SerialPortChannel>>, state: Arc<Mutex<LidarState>>) {
+    fn reader_thread(scan_buffer: Arc<Mutex<Vec<Sample>>>, channel_arc: Arc<Mutex<SerialPortChannel>>, state: Arc<Mutex<LidarState>>) {
         let mut seeking = true;
         let mut descriptor = [0u8; 7];
         {
@@ -220,7 +220,9 @@ impl Lidar {
                     break;
                 }
             }
-            let mut data = [0u8; 5];
+
+            const BATCH: usize = 100;
+            let mut data = [0u8; 5 * BATCH];
 
             match channel_arc.try_lock() {
                 Err(_) => {
@@ -230,31 +232,38 @@ impl Lidar {
                 Ok(mut channel) =>
                     match channel.read(&mut data) {
                         Err(err) => {
-                            println!("{}", err);
+                            println!("Read failure: {}", err);
                             continue;
                         }
                         Ok(()) => {}
                     },
             }
 
-            // checks
-            if !(data[0] & 0b01 == !data[0] & 0b10 && data[1] & 0b01 == 1) {
-                println!("parity failed: {:x?}", data);
-            }
+            for i in 0..BATCH {
+                let slice = &data[i * 5..i * 5 + 5];
 
-            let sample = Sample {
-                start: (data[0] & 1) != 0,
-                intensity: data[0] >> 2,
-                angle: (((data[2] as u16) << 8) | (data[1] as u16 >> 1)) / 64,
-                distance: (((data[4] as u16) << 8) | data[3] as u16) / 4,
-            };
+                // // checks
+                // if !(slice[0] & 0b01 == !((slice[0] & 0b10) >> 1)) {
+                //     eprintln!("parity failed: {:x?}", slice);
+                // }
+                // if slice[1] & 0b01 == 1 {
+                //     eprintln!("check failed: {:x?}", slice);
+                // }
 
-            if seeking && !sample.start { continue; }
+                let sample = Sample {
+                    start: (slice[0] & 1) != 0,
+                    intensity: slice[0] >> 2,
+                    angle: ((slice[2] as u16) << 1) | (slice[1] as u16 >> 7),
+                    distance: (((slice[4] as u16) << 8) | slice[3] as u16) / 4,
+                };
 
-            seeking = false;
-            match buffer.lock() {
-                Ok(mut buf) => { buf.push(sample); }
-                Err(_) => { println!("Failed to lock buffer"); }
+                if seeking && !sample.start { continue; }
+
+                seeking = false;
+                match scan_buffer.lock() {
+                    Ok(mut buf) => { buf.push(sample); }
+                    Err(_) => { println!("Failed to lock buffer"); }
+                }
             }
         }
     }

@@ -24,47 +24,63 @@ fn main() -> Result<(), Box<dyn Error>> {
     if health.status > 0 {
         eprintln!(" code: {}\nexiting!", health.error_code);
         lidar.reset();
-        return Ok(())
+        return Ok(());
     }
 
     // let modes = u16::from_le_bytes(lidar.get_lidar_conf(Count, None).payload.try_into().unwrap());
     // let typical = u16::from_le_bytes(lidar.get_lidar_conf(Typical, None).payload.try_into().unwrap());
 
     // countdown(3);
+
+    const N: usize = 10 * 365;
+    const WIDTH: usize = 365;
+    const HEIGHT: usize = 100;
+
     println!("Starting scan...");
     lidar.start_scan();
-
-    const N: usize = 5000;
-    const WIDTH: usize = 640;
-    const HEIGHT: usize = 480;
-
-    let mut pixel_data = [0u8; (WIDTH * HEIGHT)];
-    for sample in lidar.get_n_samples(5000) {
-        let x = ((sample.angle as f64).cos() * sample.distance as f64) as i16;
-        let y = ((sample.angle as f64).sin() * sample.distance as f64) as i16;
-        if x.abs() < 320 && y.abs() < 240 {
-            pixel_data[WIDTH * (y + 240) as usize + (x + 320) as usize] = 255;
-        }
-    }
-
-    // println!("{:?}", lidar.get_n_samples(5000));
-
+    let samples = lidar.get_n_samples(N as u32);
     println!("Stopping scan...");
     lidar.stop(false);
     lidar.join();
+
+    let mut pixel_data = [0u8; WIDTH * HEIGHT];
+    let mut buckets = [0u16; 365];
+    let mut hits = [0u16; 365];
+    let mut max = 0;
+    for sample in samples {
+        if sample.distance > max {
+            max = sample.distance;
+        }
+
+        let angle = sample.angle as usize;
+        buckets[angle] = (sample.distance + buckets[angle] * hits[angle]) / (hits[angle] + 1);
+        hits[angle] += 1;
+
+        // let x = ((sample.angle as f64).to_radians().cos() * sample.distance as f64) / 1000f64;
+        // let y = ((sample.angle as f64).to_radians().sin() * sample.distance as f64) / 1000f64;
+    }
+
+    for depth in 0..HEIGHT {
+        let height = HEIGHT - 1 - depth;
+        let lower_bound = height * max as usize / HEIGHT;
+        for i in 0..buckets.len() {
+            if buckets[i] as usize > lower_bound {
+                pixel_data[depth * WIDTH + i] = 255
+            }
+        }
+    }
 
     let image = ImageView::new(ImageInfo::mono8(WIDTH as u32, HEIGHT as u32), &pixel_data);
     // Create a window with default options and display the image.
     let window = create_window("image", Default::default())?;
     window.set_image("image-001", image)?;
-
     for event in window.event_channel()? {
         if let event::WindowEvent::KeyboardInput(event) = event {
-            println!("{:#?}", event);
             if event.input.key_code == Some(event::VirtualKeyCode::Escape) && event.input.state.is_pressed() {
                 break;
             }
         }
     }
+
     Ok(())
 }

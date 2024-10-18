@@ -239,6 +239,11 @@ impl Lidar {
             channel_arc.lock().unwrap().read(&mut descriptor).expect("missing descriptor");
         }
 
+        if descriptor != [0xa5, 0x5a, 0x05, 0x00, 0x00, 0x40, 0x81] {
+            eprintln!("Unable to read lidar stream (malformed descriptor)");
+            return;
+        }
+
         loop {
             let mode = state.lock().unwrap().clone();
 

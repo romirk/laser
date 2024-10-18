@@ -6,7 +6,8 @@ use crate::sl::error::RxError::{Corrupted, PortError};
 use crate::sl::lidar::LidarState::{Idle, Scanning};
 use crate::sl::serial::SerialPortChannel;
 use crate::sl::{Channel, Response, ResponseDescriptor};
-use std::sync::{Arc, Mutex, MutexGuard};
+use std::sync::mpsc::{Receiver, Sender};
+use std::sync::{mpsc, Arc, Mutex, MutexGuard};
 use std::thread;
 use std::thread::sleep;
 use std::time::Duration;
@@ -38,8 +39,6 @@ pub struct Lidar {
 
     /// reader thread handle
     thread_handle: Option<thread::JoinHandle<()>>,
-    /// buffer to read scan data into
-    scan_buffer: Arc<Mutex<Vec<Sample>>>,
 }
 
 /// pre-allocated buffer size
@@ -53,7 +52,6 @@ impl Lidar {
                 state: Arc::new(Mutex::new(Idle)),
                 channel: Arc::new(Mutex::from(*channel)),
                 thread_handle: None,
-                scan_buffer: Arc::new(Mutex::new(Vec::with_capacity(CAPACITY))),
             },
             Err(e) => panic!("Unable to bind serial port: {}", e),
         }
@@ -116,7 +114,7 @@ impl Lidar {
         match self.channel.lock().unwrap().write(&[0xa5, (if reset { Reset } else { Stop }) as u8]) {
             Ok(()) => {
                 *self.state.lock().unwrap() = Idle;
-                sleep(Duration::from_millis(2));
+                sleep(Duration::from_millis(100));
             }
             Err(e) => panic!("Unable to stop lidar: {}", e),
         }
@@ -206,30 +204,35 @@ impl Lidar {
 
 
     /// Requests transmission of laser data from the lidar
-    pub fn start_scan(&mut self) {
+    pub fn start_scan(&mut self) -> Receiver<Sample> {
         // signal lidar to begin a scan
-        let buffer = Arc::clone(&self.scan_buffer);
         let channel_arc = self.channel.clone();
 
         match (|| { return self.channel.lock().unwrap().write(&[0xa5, Scan as u8]); })() {
             Ok(()) => {
+                sleep(Duration::from_millis(500));
+
                 *self.state.lock().unwrap() = Scanning;
 
                 let state = Arc::clone(&self.state);
 
                 sleep(Duration::from_millis(1000));
 
+                let (tx, rx) = mpsc::channel();
+
                 // start reader thread
                 self.thread_handle = Some(thread::spawn(move || {
-                    Self::reader_thread(buffer, channel_arc, state);
+                    Self::reader_thread(tx, channel_arc, state);
                 }));
+
+                rx
             }
             Err(e) => { panic!("{:?}", e) }
         }
     }
 
     /// Thread that receives scan data
-    fn reader_thread(scan_buffer: Arc<Mutex<Vec<Sample>>>, channel_arc: Arc<Mutex<SerialPortChannel>>, state: Arc<Mutex<LidarState>>) {
+    fn reader_thread(tx: Sender<Sample>, channel_arc: Arc<Mutex<SerialPortChannel>>, state: Arc<Mutex<LidarState>>) {
         let mut seeking = true;
         let mut descriptor = [0u8; 7];
         {
@@ -290,24 +293,9 @@ impl Lidar {
                 if seeking && !sample.start { continue; }
 
                 seeking = false;
-                match scan_buffer.lock() {
-                    Ok(mut buf) => { buf.push(sample); }
-                    Err(_) => { println!("Failed to lock buffer"); }
-                }
+                tx.send(sample).unwrap();
             }
         }
-    }
-
-    /// blocks until the requested number of scans are available
-    pub fn get_n_samples(&self, n: u32) -> Vec<Sample> {
-        loop {
-            {
-                let buffer = self.scan_buffer.lock().unwrap();
-                if buffer.len() >= n as usize { break; }
-            }
-            sleep(Duration::from_millis(10));
-        }
-        (*self.scan_buffer.lock().unwrap()).clone().into_iter().take(n as usize).collect()
     }
 
     /// Waits for the reader thread to exit.

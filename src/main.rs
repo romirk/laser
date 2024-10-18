@@ -9,6 +9,8 @@ use sl::Channel;
 use std::cmp::max;
 use std::error::Error;
 use std::io::Write;
+use tqdm::Iter;
+
 
 #[show_image::main]
 fn main() -> Result<(), Box<dyn Error>> {
@@ -28,22 +30,20 @@ fn main() -> Result<(), Box<dyn Error>> {
         return Ok(());
     }
 
-    /// number of samples
-    const N: usize = 4096;
-
-    println!("Starting scan...");
-    lidar.start_scan();
-    let samples = lidar.get_n_samples(N as u32);
-    println!("Stopping scan...");
-    lidar.stop(false);
-    lidar.join();
-
-    // generate pixel data from samples
     const WIDTH: usize = 1280;
     const HEIGHT: usize = 720;
     let mut pixel_data = [0u8; WIDTH * HEIGHT]; // 720p
+    pixel_data[HEIGHT / 2 * WIDTH + WIDTH / 2] = 0xff;
 
-    for sample in samples {
+    /// number of samples
+    const N: usize = 100000;
+
+    println!("Starting scan...");
+    let rx = lidar.start_scan();
+
+    // generate pixel data from samples
+    println!("Scanning...");
+    for sample in rx.iter().take(N).tqdm() {
         let raw_x = (sample.angle as f64).to_radians().cos() * sample.distance as f64;
         let raw_y = (sample.angle as f64).to_radians().sin() * sample.distance as f64;
         let x = ((raw_x / 5f64) as isize + (WIDTH as isize / 2)) as usize;
@@ -54,6 +54,10 @@ fn main() -> Result<(), Box<dyn Error>> {
             pixel_data[pos] = max(pixel_data[pos] as u16 + sample.intensity as u16, 255) as u8;
         }
     }
+
+    println!("Stopping scan...");
+    lidar.stop(false);
+    lidar.join();
 
     // display
     let image = ImageView::new(ImageInfo::mono8(WIDTH as u32, HEIGHT as u32), &pixel_data);

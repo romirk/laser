@@ -29,31 +29,42 @@ pub struct Sample {
     pub(crate) distance: u16,
 }
 
+/// Represents a serial connection to a lidar
 pub struct Lidar {
+    /// State of the lidar's internal state machine
     state: Arc<Mutex<LidarState>>,
+    /// serial connection object
     channel: Arc<Mutex<SerialPortChannel>>,
 
+    /// reader thread handle
     thread_handle: Option<thread::JoinHandle<()>>,
+    /// buffer to read scan data into
     scan_buffer: Arc<Mutex<Vec<Sample>>>,
 }
 
+/// pre-allocated buffer size
+const CAPACITY: usize = 2048;
+
 impl Lidar {
+    /// initializes a serial connection to the lidar on the given port.
     pub fn init(port: String) -> Lidar {
         match SerialPortChannel::bind(port, S1_BAUD) {
             Ok(channel) => Lidar {
                 state: Arc::new(Mutex::new(Idle)),
                 channel: Arc::new(Mutex::from(*channel)),
                 thread_handle: None,
-                scan_buffer: Arc::new(Mutex::new(Vec::with_capacity(2048))),
+                scan_buffer: Arc::new(Mutex::new(Vec::with_capacity(CAPACITY))),
             },
             Err(e) => panic!("Unable to bind serial port: {}", e),
         }
     }
 
+    /// Generates the checksum for a given message
     fn checksum(payload: &[u8]) -> u8 {
         payload.iter().fold(0, |acc, x| acc ^ x)
     }
 
+    /// Performs a request with a single response
     fn single_req(&mut self, req: &[u8]) -> Result<Response, RxError> {
         let mut channel = self.channel.lock().unwrap();
         match channel.write(&req) {
@@ -62,6 +73,7 @@ impl Lidar {
         }
     }
 
+    /// Receives a response from the lidar
     fn rx(mut channel: MutexGuard<SerialPortChannel>) -> Result<Response, RxError> {
         // response header
         let mut descriptor_bytes = [0u8; 7];
@@ -99,6 +111,7 @@ impl Lidar {
         })
     }
 
+    /// stops the lidar
     pub fn stop(&mut self, reset: bool) {
         match self.channel.lock().unwrap().write(&[0xa5, (if reset { Reset } else { Stop }) as u8]) {
             Ok(()) => {
@@ -109,8 +122,14 @@ impl Lidar {
         }
     }
 
+    /// Resets/reboots the lidar
     pub fn reset(&mut self) { self.stop(true); }
 
+    /// Sets motor speed
+    ///
+    /// _Unsupported on RPLIDAR S1?_
+    ///
+    /// TODO check this
     fn set_motor_speed(&mut self, speed: u16) {
         let speed_bytes = speed.to_le_bytes();
         let mut req = [0xa5, HQMotorSpeedCtrl as u8, 0x02, speed_bytes[0], speed_bytes[1], 0];
@@ -118,6 +137,7 @@ impl Lidar {
         self.channel.lock().unwrap().write(&req).expect("Set motor speed failed");
     }
 
+    /// Retrieves device information
     pub fn get_info(&mut self) -> SlLidarResponseDeviceInfoT {
         let res = self.single_req(&[0xa5, GetDeviceInfo as u8]).expect("Could not read device info");
         let data = res.data;
@@ -130,6 +150,7 @@ impl Lidar {
         }
     }
 
+    /// Retrieves the lidar's health
     pub fn get_health(&mut self) -> SlLidarResponseDeviceHealthT {
         let res = self.single_req(&[0xa5, GetDeviceHealth as u8]).expect("Could not read device health");
         let data = res.data;
@@ -140,6 +161,7 @@ impl Lidar {
         }
     }
 
+    /// Returns the sampling rate of the lidar
     pub fn get_sample_rate(&mut self) -> SlLidarResponseSampleRateT {
         let res = self.single_req(&[0xa5, GetSampleRate as u8]).expect("Could not read sample rate");
         let data = res.data;
@@ -150,6 +172,7 @@ impl Lidar {
         }
     }
 
+    /// Queries the lidar for specific configuration settings
     pub fn get_lidar_conf(&mut self, entry: ScanModeConfEntry, payload: Option<u16>) -> SlLidarResponseGetLidarConf {
         let mut req = [0u8; 12];
 
@@ -181,6 +204,8 @@ impl Lidar {
         }
     }
 
+
+    /// Requests transmission of laser data from the lidar
     pub fn start_scan(&mut self) {
         // signal lidar to begin a scan
         let buffer = Arc::clone(&self.scan_buffer);
@@ -203,6 +228,7 @@ impl Lidar {
         }
     }
 
+    /// Thread that receives scan data
     fn reader_thread(scan_buffer: Arc<Mutex<Vec<Sample>>>, channel_arc: Arc<Mutex<SerialPortChannel>>, state: Arc<Mutex<LidarState>>) {
         let mut seeking = true;
         let mut descriptor = [0u8; 7];
@@ -271,38 +297,25 @@ impl Lidar {
             }
         }
     }
-    // pub fn get_sample(&self) -> Result<Sample, RxError> {
-    //     let start = Instant::now();
-    //     let timeout = Duration::from_millis(10000);
-    //     loop {
-    //         {
-    //             let head = self.scan_buffer.lock().unwrap().pop_front();
-    //             match head {
-    //                 None => {
-    //                     if start.elapsed() > timeout { return Err(TimedOut); }
-    //                 }
-    //                 Some(sample) => { return Ok(sample); }
-    //             }
-    //         }
-    //         sleep(Duration::from_millis(1000));
-    //     }
-    // }
 
+    /// blocks until the requested number of scans are available
     pub fn get_n_samples(&self, n: u32) -> Vec<Sample> {
         loop {
             {
                 let buffer = self.scan_buffer.lock().unwrap();
                 if buffer.len() >= n as usize { break; }
             }
-            sleep(Duration::from_secs(1));
+            sleep(Duration::from_millis(10));
         }
         (*self.scan_buffer.lock().unwrap()).clone().into_iter().take(n as usize).collect()
     }
 
+    /// Waits for the reader thread to exit.
     pub fn join(&mut self) {
         if let Some(handle) = self.thread_handle.take() {
             handle.join().unwrap();
         }
+        self.thread_handle = None;
     }
 }
 

@@ -12,7 +12,7 @@ use std::thread;
 use std::thread::sleep;
 use std::time::Duration;
 
-const S1_BAUD: u32 = 256000;
+const S1_BAUD: usize = 256000;
 
 #[derive(Debug, Clone)]
 enum LidarState {
@@ -47,7 +47,7 @@ const CAPACITY: usize = 2048;
 impl Lidar {
     /// initializes a serial connection to the lidar on the given port.
     pub fn init(port: String) -> Lidar {
-        match SerialPortChannel::bind(port, S1_BAUD) {
+        match SerialPortChannel::bind(port, S1_BAUD as u32) {
             Ok(channel) => Lidar {
                 state: Arc::new(Mutex::new(Idle)),
                 channel: Arc::new(Mutex::from(*channel)),
@@ -250,7 +250,7 @@ impl Lidar {
                 }
             }
 
-            const BATCH: usize = 256;
+            const BATCH: usize = S1_BAUD / 500;
             let mut data = [0u8; 5 * BATCH];
 
             match channel_arc.try_lock() {

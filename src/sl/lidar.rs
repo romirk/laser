@@ -41,9 +41,6 @@ pub struct Lidar {
     thread_handle: Option<thread::JoinHandle<()>>,
 }
 
-/// pre-allocated buffer size
-const CAPACITY: usize = 2048;
-
 impl Lidar {
     /// initializes a serial connection to the lidar on the given port.
     pub fn init(port: String) -> Lidar {

@@ -4,13 +4,10 @@ mod sl;
 mod util;
 
 use show_image::{create_window, event, ImageInfo, ImageView};
-use sl::lidar::Lidar;
-use sl::Channel;
 use std::cmp::max;
 use std::error::Error;
-use std::io::Write;
 use tqdm::Iter;
-
+use sl::lidar::Lidar;
 
 #[show_image::main]
 fn main() -> Result<(), Box<dyn Error>> {

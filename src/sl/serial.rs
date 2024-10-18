@@ -4,9 +4,6 @@ use std::io::Write;
 use std::time::{Duration, Instant};
 
 pub struct SerialPortChannel {
-    path: String,
-    baud: u32,
-
     close_pending: bool,
     port: Box<dyn SerialPort>,
 }
@@ -15,8 +12,6 @@ impl SerialPortChannel {
     pub fn bind(path: String, baud: u32) -> Result<Box<SerialPortChannel>, serialport::Error> {
         match serialport::new(&path, baud).timeout(Duration::from_millis(1000)).open() {
             Ok(port) => Ok(Box::new(SerialPortChannel {
-                path: path.clone(),
-                baud,
                 close_pending: false,
                 port,
             })),

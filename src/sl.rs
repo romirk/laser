@@ -1,5 +1,3 @@
-use std::ffi::c_float;
-
 pub mod serial;
 pub mod cmd;
 pub mod lidar;
@@ -39,29 +37,29 @@ pub trait Channel {
     fn wait_for_data(&self, size: usize, timeout_ms: u32, actual_ready: &mut usize) -> bool;
 
     /// Send data to remote endpoint
-    fn write(&mut self, data: &[u8]) ->  Result<(), serialport::Error>;
+    fn write(&mut self, data: &[u8]) -> Result<(), serialport::Error>;
 
     /// Read data from the channel
-    fn read(&mut self, data: &mut [u8]) ->  Result<(), serialport::Error>;
+    fn read(&mut self, data: &mut [u8]) -> Result<(), serialport::Error>;
 
     /// Clear read cache
     fn clear_read_cache();
 }
 
-/// LIDAR Scan Mode
-pub struct LidarScanMode {
-    /// Mode id
-    id: u16,
-
-    /// Time cost for one measurement (in microseconds)
-    us_per_sample: c_float,
-
-    /// Max distance in this scan mode (in meters)
-    max_distance: c_float,
-
-    /// The answer command code for this scan mode
-    ans_type: u8,
-
-    /// The name of scan mode (padding with 0 if less than 64 characters)
-    scan_mode: [char; 64],
-}
+// LIDAR Scan Mode
+// pub struct LidarScanMode {
+//     /// Mode id
+//     id: u16,
+//
+//     /// Time cost for one measurement (in microseconds)
+//     us_per_sample: c_float,
+//
+//     /// Max distance in this scan mode (in meters)
+//     max_distance: c_float,
+//
+//     /// The answer command code for this scan mode
+//     ans_type: u8,
+//
+//     /// The name of scan mode (padding with 0 if less than 64 characters)
+//     scan_mode: [char; 64],
+// }

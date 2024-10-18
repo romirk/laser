@@ -1,4 +1,4 @@
-use crate::sl::{Channel, ChannelType};
+use crate::sl::Channel;
 use serialport::SerialPort;
 use std::io::Write;
 use std::time::{Duration, Instant};
@@ -68,10 +68,6 @@ impl Channel for SerialPortChannel {
     }
 
     fn clear_read_cache() {
-        todo!()
-    }
-
-    fn get_channel_type() -> ChannelType {
         todo!()
     }
 }

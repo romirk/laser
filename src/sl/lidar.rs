@@ -24,7 +24,7 @@ enum LidarState {
 #[derive(Debug, Clone)]
 pub struct Sample {
     pub(crate) start: bool,
-    intensity: u8,
+    pub(crate) intensity: u8,
     pub(crate) angle: u16,
     pub(crate) distance: u16,
 }
@@ -242,13 +242,17 @@ impl Lidar {
             for i in 0..BATCH {
                 let slice = &data[i * 5..i * 5 + 5];
 
-                // // checks
-                // if !(slice[0] & 0b01 == !((slice[0] & 0b10) >> 1)) {
-                //     eprintln!("parity failed: {:x?}", slice);
-                // }
+                // checks
+                let s = slice[0] & 0b11;
+                if s == 0b11 || s == 0b00 {
+                    eprintln!("parity failed: {:x?}", slice);
+                    continue;
+                }
                 // if slice[1] & 0b01 == 1 {
                 //     eprintln!("check failed: {:x?}", slice);
+                //     continue;
                 // }
+
 
                 let sample = Sample {
                     start: (slice[0] & 1) != 0,

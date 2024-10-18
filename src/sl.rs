@@ -5,11 +5,6 @@ pub mod cmd;
 pub mod lidar;
 pub mod error;
 
-enum ChannelType {
-    ChannelTypeSerialPort = 0x0,
-    ChannelTypeTCP = 0x1,
-    ChannelTypeUDP = 0x2,
-}
 #[derive(Debug)]
 pub struct ResponseDescriptor {
     pub len: u32,
@@ -51,7 +46,6 @@ pub trait Channel {
 
     /// Clear read cache
     fn clear_read_cache();
-    fn get_channel_type() -> ChannelType;
 }
 
 /// LIDAR Scan Mode
@@ -70,45 +64,4 @@ pub struct LidarScanMode {
 
     /// The name of scan mode (padding with 0 if less than 64 characters)
     scan_mode: [char; 64],
-}
-enum LIDARTechnologyType {
-    LidarTechnologyUnknown = 0,
-    LidarTechnologyTriangulation = 1,
-    LidarTechnologyDTOF = 2,
-    LidarTechnologyETOF = 3,
-    LidarTechnologyFMCW = 4,
-}
-
-enum LIDARMajorType {
-    LidarMajorTypeUnknown = 0,
-    LidarMajorTypeASeries = 1,
-    LidarMajorTypeSSeries = 2,
-    LidarMajorTypeTSeries = 3,
-    LidarMajorTypeMSeries = 4,
-    LidarMajorTypeCSeries = 6,
-}
-
-enum LIDARInterfaceType {
-    LidarInterfaceUART = 0,
-    LidarInterfaceEthernet = 1,
-    LidarInterfaceUSB = 2,
-    LidarInterfaceCanbus = 5,
-
-    LidarInterfaceUnknown = 0xFFFF,
-}
-
-enum MotorCtrlSupport
-{
-    MotorCtrlSupportNone = 0,
-    MotorCtrlSupportPwm = 1,
-    MotorCtrlSupportRpm = 2,
-}
-
-
-struct SlamtecLidarTimingDesc {
-    sample_duration_us: u32,
-    native_baudrate: u32,
-    linkage_delay_us: u32,
-    native_interface_type: LIDARInterfaceType,
-    native_timestamp_support: bool,
 }

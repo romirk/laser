@@ -6,3 +6,4 @@ an exercise in reinventing the wheel
 port lidar drivers to rust
 
 - [x] First contact!
+- [x] FIRST SCAN

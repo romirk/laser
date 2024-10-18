@@ -2,17 +2,14 @@ use crate::sl::cmd::ScanModeConfEntry::*;
 use crate::sl::cmd::SlLidarCmd::{GetDeviceHealth, GetDeviceInfo, GetLidarConf, GetSampleRate, HQMotorSpeedCtrl, Reset, Scan, Stop};
 use crate::sl::cmd::{ScanModeConfEntry, SlLidarResponseDeviceHealthT, SlLidarResponseDeviceInfoT, SlLidarResponseGetLidarConf, SlLidarResponseSampleRateT};
 use crate::sl::error::RxError;
-use crate::sl::error::RxError::{Corrupted, PortError, TimedOut};
+use crate::sl::error::RxError::{Corrupted, PortError};
 use crate::sl::lidar::LidarState::{Idle, Scanning};
 use crate::sl::serial::SerialPortChannel;
 use crate::sl::{Channel, Response, ResponseDescriptor};
-use std::collections::vec_deque::Iter;
-use std::collections::VecDeque;
-use std::iter::Take;
 use std::sync::{Arc, Mutex, MutexGuard};
 use std::thread;
 use std::thread::sleep;
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 const S1_BAUD: u32 = 256000;
 
@@ -199,60 +196,66 @@ impl Lidar {
 
                 // start reader thread
                 self.thread_handle = Some(thread::spawn(move || {
-                    let mut seeking = true;
-                    let mut descriptor = [0u8; 7];
-                    {
-                        channel_arc.lock().unwrap().read(&mut descriptor).expect("missing descriptor");
-                    }
-                    loop {
-                        let mode = state.lock().unwrap().clone();
-                        match mode {
-                            Scanning => {
-                                match channel_arc.try_lock() {
-                                    Err(_) => {
-                                        sleep(Duration::from_millis(100));
-                                        continue;
-                                    }
-                                    Ok(mut channel) => {
-                                        let mut data = [0u8; 5];
-                                        match channel.read(&mut data) {
-                                            Err(err) => {
-                                                println!("{}", err);
-                                                continue;
-                                            }
-                                            Ok(()) => {}
-                                        }
-
-                                        // checks
-                                        if !(data[0] & 0b01 == !data[0] & 0b10 && data[1] & 0b01 == 1) {
-                                            println!("parity failed: {:x?}", data);
-                                        }
-
-                                        let sample = Sample {
-                                            start: (data[0] & 1) != 0,
-                                            intensity: data[0] >> 2,
-                                            angle: (((data[2] as u16) << 8) | (data[1] as u16 >> 1)) / 64,
-                                            distance: (((data[4] as u16) << 8) | data[3] as u16) / 4,
-                                        };
-
-                                        if seeking && !sample.start { continue; }
-                                        seeking = false;
-                                        match buffer.lock() {
-                                            Ok(mut buf) => { buf.push(sample); }
-                                            Err(_) => { println!("Failed to lock buffer"); }
-                                        }
-                                    }
-                                }
-                            }
-                            mode => {
-                                println!("Not scanning: {:?}", mode);
-                                break;
-                            }
-                        }
-                    }
+                    Self::reader_thread(buffer, channel_arc, state);
                 }));
             }
             Err(e) => { panic!("{:?}", e) }
+        }
+    }
+
+    fn reader_thread(buffer: Arc<Mutex<Vec<Sample>>>, channel_arc: Arc<Mutex<SerialPortChannel>>, state: Arc<Mutex<LidarState>>) {
+        let mut seeking = true;
+        let mut descriptor = [0u8; 7];
+        {
+            channel_arc.lock().unwrap().read(&mut descriptor).expect("missing descriptor");
+        }
+
+        loop {
+            let mode = state.lock().unwrap().clone();
+
+            match mode {
+                Scanning => {}
+                mode => {
+                    println!("Not scanning: {:?}", mode);
+                    break;
+                }
+            }
+            let mut data = [0u8; 5];
+
+            match channel_arc.try_lock() {
+                Err(_) => {
+                    sleep(Duration::from_millis(100));
+                    continue;
+                }
+                Ok(mut channel) =>
+                    match channel.read(&mut data) {
+                        Err(err) => {
+                            println!("{}", err);
+                            continue;
+                        }
+                        Ok(()) => {}
+                    },
+            }
+
+            // checks
+            if !(data[0] & 0b01 == !data[0] & 0b10 && data[1] & 0b01 == 1) {
+                println!("parity failed: {:x?}", data);
+            }
+
+            let sample = Sample {
+                start: (data[0] & 1) != 0,
+                intensity: data[0] >> 2,
+                angle: (((data[2] as u16) << 8) | (data[1] as u16 >> 1)) / 64,
+                distance: (((data[4] as u16) << 8) | data[3] as u16) / 4,
+            };
+
+            if seeking && !sample.start { continue; }
+
+            seeking = false;
+            match buffer.lock() {
+                Ok(mut buf) => { buf.push(sample); }
+                Err(_) => { println!("Failed to lock buffer"); }
+            }
         }
     }
     // pub fn get_sample(&self) -> Result<Sample, RxError> {

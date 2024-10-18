@@ -3,7 +3,7 @@ use std::ffi::c_float;
 pub mod serial;
 pub mod cmd;
 pub mod lidar;
-mod error;
+pub mod error;
 
 enum ChannelType {
     ChannelTypeSerialPort = 0x0,

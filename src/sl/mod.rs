@@ -1,8 +1,6 @@
 pub mod cmd;
 pub mod error;
 pub mod lidar;
-pub mod serial;
-
 #[derive(Debug)]
 pub struct ResponseDescriptor {
     pub len: u32,

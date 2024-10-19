@@ -1,4 +1,4 @@
-// #![allow(unused, dead_code)]
+#![allow(unused, dead_code)]
 // TODO REMOVE THIS! ^^
 
 mod examples;

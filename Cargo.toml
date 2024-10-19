@@ -4,6 +4,8 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
+clap = { version = "4.5.20", features = ["derive"] }
+palette = "0.7.6"
 serialport = "4.5.1"
 show-image = "0.14.0"
 tqdm = "0.7.0"

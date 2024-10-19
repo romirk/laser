@@ -156,6 +156,10 @@ impl Lidar {
         }
     }
 
+    pub fn get_health_str(&mut self) -> &'static str {
+        ["healthy", "warning", "error"].get(self.get_health().status as usize).unwrap()
+    }
+
     /// Returns the sampling rate of the lidar
     pub fn get_sample_rate(&mut self) -> SlLidarResponseSampleRateT {
         let res = self.single_req(&[0xa5, GetSampleRate as u8]).expect("Could not read sample rate");
@@ -207,14 +211,10 @@ impl Lidar {
 
         match (|| { return self.channel.lock().unwrap().write(&[0xa5, Scan as u8]); })() {
             Ok(()) => {
-                sleep(Duration::from_millis(500));
 
                 *self.state.lock().unwrap() = Scanning;
 
                 let state = Arc::clone(&self.state);
-
-                sleep(Duration::from_millis(1000));
-
                 let (tx, rx) = mpsc::channel();
 
                 // start reader thread
@@ -241,13 +241,16 @@ impl Lidar {
             return;
         }
 
+        // give the lidar time to spin up
+        sleep(Duration::from_millis(1000));
+
         loop {
             let mode = state.lock().unwrap().clone();
 
             match mode {
                 Scanning => {}
-                mode => {
-                    println!("Not scanning: {:?}", mode);
+                _ => {
+                    println!("Scan stopped.");
                     break;
                 }
             }

@@ -33,7 +33,7 @@ pub fn live_view(mut lidar: Lidar, points: Option<usize>) -> Result<(), Box<dyn 
     // read/display loop
     run_context(move || {
         println!("Starting scan ({} sample{})...", n, if n == 1 { "" } else { "s" });
-        let rx = lidar.start_scan();
+        let rx = lidar.start_scan().expect("Scan should have started");
         let window = create_window("scan", WindowOptions {
             // size: Some([WIDTH as u32 * 4 / 5, HEIGHT as u32 * 4 / 5]),
             fullscreen: true,

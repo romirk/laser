@@ -1,7 +1,7 @@
-pub mod serial;
 pub mod cmd;
-pub mod lidar;
 pub mod error;
+pub mod lidar;
+pub mod serial;
 
 #[derive(Debug)]
 pub struct ResponseDescriptor {

@@ -1,13 +1,20 @@
 use crate::sl::cmd::ScanModeConfEntry::*;
-use crate::sl::cmd::SlLidarCmd::{GetDeviceHealth, GetDeviceInfo, GetLidarConf, GetSampleRate, HQMotorSpeedCtrl, Reset, Scan, Stop};
-use crate::sl::cmd::{ScanModeConfEntry, SlLidarResponseDeviceHealthT, SlLidarResponseDeviceInfoT, SlLidarResponseGetLidarConf, SlLidarResponseSampleRateT};
+use crate::sl::cmd::SlLidarCmd::{
+    GetDeviceHealth, GetDeviceInfo, GetLidarConf, GetSampleRate, HQMotorSpeedCtrl, Reset, Scan,
+    Stop,
+};
+use crate::sl::cmd::{
+    ScanModeConfEntry, SlLidarResponseDeviceHealthT, SlLidarResponseDeviceInfoT,
+    SlLidarResponseGetLidarConf, SlLidarResponseSampleRateT,
+};
 use crate::sl::error::RxError;
-use crate::sl::error::RxError::{Corrupted, PortError};
-use crate::sl::lidar::LidarState::{Idle, Scanning};
-use crate::sl::serial::SerialPortChannel;
+use crate::sl::error::RxError::Corrupted;
 use crate::sl::{Channel, Response, ResponseDescriptor};
+use serialport::SerialPort;
+use std::io::{Read, Write};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{Receiver, Sender};
-use std::sync::{mpsc, Arc, Mutex, MutexGuard};
+use std::sync::{mpsc, Arc};
 use std::thread;
 use std::thread::sleep;
 use std::time::Duration;
@@ -33,9 +40,9 @@ pub struct Sample {
 /// Represents a serial connection to a lidar
 pub struct Lidar {
     /// State of the lidar's internal state machine
-    state: Arc<Mutex<LidarState>>,
+    nuke: Arc<AtomicBool>,
     /// serial connection object
-    channel: Arc<Mutex<SerialPortChannel>>,
+    channel: Box<dyn serialport::SerialPort>,
 
     /// reader thread handle
     thread_handle: Option<thread::JoinHandle<()>>,
@@ -43,15 +50,15 @@ pub struct Lidar {
 
 impl Lidar {
     /// initializes a serial connection to the lidar on the given port.
-    pub fn init(port: String) -> Lidar {
-        match SerialPortChannel::bind(port, S1_BAUD as u32) {
-            Ok(channel) => Lidar {
-                state: Arc::new(Mutex::new(Idle)),
-                channel: Arc::new(Mutex::from(*channel)),
+    pub fn init(port: String) -> Result<Lidar, serialport::Error> {
+        serialport::new(&port, S1_BAUD as u32)
+            .timeout(Duration::from_millis(1000))
+            .open()
+            .map(|channel| Lidar {
+                nuke: Arc::new(AtomicBool::new(false)),
+                channel,
                 thread_handle: None,
-            },
-            Err(e) => panic!("Unable to bind serial port: {}", e),
-        }
+            })
     }
 
     /// Generates the checksum for a given message
@@ -61,21 +68,11 @@ impl Lidar {
 
     /// Performs a request with a single response
     fn single_req(&mut self, req: &[u8]) -> Result<Response, RxError> {
-        let mut channel = self.channel.lock().unwrap();
-        match channel.write(&req) {
-            Ok(()) => Lidar::rx(channel),
-            Err(e) => Err(PortError(e))
-        }
-    }
-
-    /// Receives a response from the lidar
-    fn rx(mut channel: MutexGuard<SerialPortChannel>) -> Result<Response, RxError> {
+        self.channel.write_all(&req)?;
         // response header
         let mut descriptor_bytes = [0u8; 7];
-        match channel.read(&mut descriptor_bytes) {
-            Ok(()) => {}
-            Err(e) => return Err(PortError(e))
-        }
+
+        self.channel.read_exact(&mut descriptor_bytes)?;
 
         if descriptor_bytes[0..2] != [0xa5, 0x5a] {
             return Err(Corrupted(descriptor_bytes));
@@ -95,30 +92,23 @@ impl Lidar {
 
         // data
         let mut data = vec![0u8; descriptor.len as usize];
-        match channel.read(&mut data) {
-            Ok(()) => {}
-            Err(e) => return Err(PortError(e))
-        }
+        self.channel.read_exact(&mut data)?;
 
-        Ok(Response {
-            descriptor,
-            data,
-        })
+        Ok(Response { descriptor, data })
     }
 
     /// stops the lidar
     pub fn stop(&mut self, reset: bool) {
-        match self.channel.lock().unwrap().write(&[0xa5, (if reset { Reset } else { Stop }) as u8]) {
-            Ok(()) => {
-                *self.state.lock().unwrap() = Idle;
-                sleep(Duration::from_millis(100));
-            }
-            Err(e) => panic!("Unable to stop lidar: {}", e),
-        }
+        self.nuke.store(true, Ordering::Relaxed);
+        self.channel
+            .write_all(&[0xa5, (if reset { Reset } else { Stop }) as u8])
+            .unwrap();
     }
 
     /// Resets/reboots the lidar
-    pub fn reset(&mut self) { self.stop(true); }
+    pub fn reset(&mut self) {
+        self.stop(true);
+    }
 
     /// Sets motor speed
     ///
@@ -127,14 +117,23 @@ impl Lidar {
     /// TODO check this
     fn set_motor_speed(&mut self, speed: u16) {
         let speed_bytes = speed.to_le_bytes();
-        let mut req = [0xa5, HQMotorSpeedCtrl as u8, 0x02, speed_bytes[0], speed_bytes[1], 0];
+        let mut req = [
+            0xa5,
+            HQMotorSpeedCtrl as u8,
+            0x02,
+            speed_bytes[0],
+            speed_bytes[1],
+            0,
+        ];
         req[5] = Lidar::checksum(&req);
-        self.channel.lock().unwrap().write(&req).expect("Set motor speed failed");
+        self.channel.write_all(&req).unwrap()
     }
 
     /// Retrieves device information
     pub fn get_info(&mut self) -> SlLidarResponseDeviceInfoT {
-        let res = self.single_req(&[0xa5, GetDeviceInfo as u8]).expect("Could not read device info");
+        let res = self
+            .single_req(&[0xa5, GetDeviceInfo as u8])
+            .expect("Could not read device info");
         let data = res.data;
 
         SlLidarResponseDeviceInfoT {
@@ -147,7 +146,9 @@ impl Lidar {
 
     /// Retrieves the lidar's health
     pub fn get_health(&mut self) -> SlLidarResponseDeviceHealthT {
-        let res = self.single_req(&[0xa5, GetDeviceHealth as u8]).expect("Could not read device health");
+        let res = self
+            .single_req(&[0xa5, GetDeviceHealth as u8])
+            .expect("Could not read device health");
         let data = res.data;
 
         SlLidarResponseDeviceHealthT {
@@ -157,12 +158,16 @@ impl Lidar {
     }
 
     pub fn get_health_str(&mut self) -> &'static str {
-        ["healthy", "warning", "error"].get(self.get_health().status as usize).unwrap()
+        ["healthy", "warning", "error"]
+            .get(self.get_health().status as usize)
+            .unwrap()
     }
 
     /// Returns the sampling rate of the lidar
     pub fn get_sample_rate(&mut self) -> SlLidarResponseSampleRateT {
-        let res = self.single_req(&[0xa5, GetSampleRate as u8]).expect("Could not read sample rate");
+        let res = self
+            .single_req(&[0xa5, GetSampleRate as u8])
+            .expect("Could not read sample rate");
         let data = res.data;
 
         SlLidarResponseSampleRateT {
@@ -172,7 +177,11 @@ impl Lidar {
     }
 
     /// Queries the lidar for specific configuration settings
-    pub fn get_lidar_conf(&mut self, entry: ScanModeConfEntry, payload: Option<u16>) -> SlLidarResponseGetLidarConf {
+    pub fn get_lidar_conf(
+        &mut self,
+        entry: ScanModeConfEntry,
+        payload: Option<u16>,
+    ) -> SlLidarResponseGetLidarConf {
         let mut req = [0u8; 12];
 
         req[0] = 0xa5;
@@ -191,10 +200,14 @@ impl Lidar {
             }
         }
 
-        let res = self.single_req(&req[..(match entry {
-            Count | Typical => 8,
-            _ => 12
-        })]).expect("Could not read lidar conf");
+        let res = self
+            .single_req(
+                &req[..(match entry {
+                    Count | Typical => 8,
+                    _ => 12,
+                })],
+            )
+            .expect("Could not read lidar conf");
         let data = res.data;
 
         SlLidarResponseGetLidarConf {
@@ -203,38 +216,34 @@ impl Lidar {
         }
     }
 
-
     /// Requests transmission of laser data from the lidar
-    pub fn start_scan(&mut self) -> Receiver<Sample> {
+    pub fn start_scan(&mut self) -> Result<Receiver<Sample>, serialport::Error> {
         // signal lidar to begin a scan
-        let channel_arc = self.channel.clone();
+        self.channel.write_all(&[0xa5, Scan as u8])?;
 
-        match (|| { return self.channel.lock().unwrap().write(&[0xa5, Scan as u8]); })() {
-            Ok(()) => {
+        let nuke = Arc::clone(&self.nuke);
+        let (tx, rx) = mpsc::channel();
+        let channel = self
+            .channel
+            .try_clone()
+            .expect("Serial port channels can be cloned.");
 
-                *self.state.lock().unwrap() = Scanning;
+        // start reader thread
+        self.thread_handle = Some(thread::spawn(move || {
+            Self::reader_thread(tx, channel, nuke);
+        }));
 
-                let state = Arc::clone(&self.state);
-                let (tx, rx) = mpsc::channel();
-
-                // start reader thread
-                self.thread_handle = Some(thread::spawn(move || {
-                    Self::reader_thread(tx, channel_arc, state);
-                }));
-
-                rx
-            }
-            Err(e) => { panic!("{:?}", e) }
-        }
+        Ok(rx)
     }
 
     /// Thread that receives scan data
-    fn reader_thread(tx: Sender<Sample>, channel_arc: Arc<Mutex<SerialPortChannel>>, state: Arc<Mutex<LidarState>>) {
+    fn reader_thread(tx: Sender<Sample>, mut channel: Box<dyn SerialPort>, nuke: Arc<AtomicBool>) {
         let mut seeking = true;
         let mut descriptor = [0u8; 7];
-        {
-            channel_arc.lock().unwrap().read(&mut descriptor).expect("missing descriptor");
-        }
+
+        channel
+            .read_exact(&mut descriptor)
+            .expect("missing descriptor");
 
         if descriptor != [0xa5, 0x5a, 0x05, 0x00, 0x00, 0x40, 0x81] {
             eprintln!("Unable to read lidar stream (malformed descriptor)");
@@ -245,32 +254,15 @@ impl Lidar {
         sleep(Duration::from_millis(1000));
 
         loop {
-            let mode = state.lock().unwrap().clone();
-
-            match mode {
-                Scanning => {}
-                _ => {
-                    println!("Scan stopped.");
-                    break;
-                }
-            }
-
             const BATCH: usize = S1_BAUD / 500;
             let mut data = [0u8; 5 * BATCH];
 
-            match channel_arc.try_lock() {
-                Err(_) => {
-                    sleep(Duration::from_millis(100));
-                    continue;
+            if let Err(err) = channel.read_exact(&mut data) {
+                if nuke.load(Ordering::Relaxed) {
+                    println!("Scan stopped.");
+                    return;
                 }
-                Ok(mut channel) =>
-                    match channel.read(&mut data) {
-                        Err(err) => {
-                            println!("Read failure: {}", err);
-                            continue;
-                        }
-                        Ok(()) => {}
-                    },
+                panic!("Unable to read lidar stream (malformed data): {}", err);
             }
 
             for i in 0..BATCH {
@@ -290,7 +282,9 @@ impl Lidar {
                     distance: (((slice[4] as u16) << 8) | slice[3] as u16) / 4,
                 };
 
-                if seeking && !sample.start { continue; }
+                if seeking && !sample.start {
+                    continue;
+                }
 
                 seeking = false;
                 tx.send(sample).unwrap();
@@ -306,4 +300,3 @@ impl Lidar {
         self.thread_handle = None;
     }
 }
-

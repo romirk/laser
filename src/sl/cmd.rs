@@ -232,9 +232,8 @@ pub enum ScanModeConfEntry {
     MaxDistance = 0x00000074,
     AnsType = 0x00000075,
     Typical = 0x0000007C,
-    Name = 0x0000007F
+    Name = 0x0000007F,
 }
-
 
 // const SL_LIDAR_CONF_MODEL_REVISION_ID: u32 = 0x00000080;
 // const SL_LIDAR_CONF_MODEL_NAME_ALIAS: u32 = 0x00000081;

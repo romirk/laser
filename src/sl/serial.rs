@@ -10,12 +10,15 @@ pub struct SerialPortChannel {
 
 impl SerialPortChannel {
     pub fn bind(path: String, baud: u32) -> Result<Box<SerialPortChannel>, serialport::Error> {
-        match serialport::new(&path, baud).timeout(Duration::from_millis(1000)).open() {
+        match serialport::new(&path, baud)
+            .timeout(Duration::from_millis(1000))
+            .open()
+        {
             Ok(port) => Ok(Box::new(SerialPortChannel {
                 close_pending: false,
                 port,
             })),
-            Err(err) => Err(err.into())
+            Err(err) => Err(err.into()),
         }
     }
 }
@@ -38,7 +41,10 @@ impl Channel for SerialPortChannel {
         let start = Instant::now();
         let timeout = Duration::from_millis(timeout_ms.into());
         loop {
-            *actual_ready = self.port.bytes_to_read().expect("Failed to read serial port!") as usize;
+            *actual_ready = self
+                .port
+                .bytes_to_read()
+                .expect("Failed to read serial port!") as usize;
             if *actual_ready >= size {
                 return true;
             }

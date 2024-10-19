@@ -1,13 +1,14 @@
-extern crate core;
+// #![allow(unused, dead_code)]
+// TODO REMOVE THIS! ^^
 
+mod examples;
 mod sl;
 mod util;
-mod examples;
 
 use clap::Parser;
+use examples::live;
 use sl::lidar::Lidar;
 use std::error::Error;
-use examples::live;
 
 #[derive(Parser)]
 #[command(version, about, long_about = None)]
@@ -21,6 +22,6 @@ fn main() -> Result<(), Box<dyn Error>> {
     let args = Args::parse();
 
     // initialize lidar
-    let lidar = Lidar::init(args.port);
+    let lidar = Lidar::init(args.port)?;
     live::live_view(lidar, args.points)
 }

@@ -79,26 +79,25 @@ pub enum SlLidarCmd {
 //     param: u16,
 // }
 
-// Response
-// #[derive(Debug)]
-// #[repr(u8)]
-// pub enum SlLidarAnsType {
-//     DevInfo = 0x04,
-//     DevHealth = 0x06,
-//
-//     Measurement = 0x81,
-//     MeasurementCapsuled = 0x82,
-//     MeasurementHQ = 0x83,
-//     MeasurementCapsuledUltra = 0x84,
-//     MeasurementDenseCapsuled = 0x85,
-//     MeasurementUltraDenseCapsuled = 0x86,
-//
-//     SampleRate = 0x15,
-//     GetLidarConf = 0x20,
-//     SetLidarConf = 0x21,
-//
-//     AccBoardFlag = 0xFF,
-// }
+#[derive(Debug)]
+#[repr(u8)]
+pub enum SlLidarAnsType {
+    DevInfo = 0x04,
+    DevHealth = 0x06,
+
+    Measurement = 0x81,
+    MeasurementCapsuled = 0x82,
+    MeasurementHQ = 0x83,
+    MeasurementCapsuledUltra = 0x84,
+    MeasurementDenseCapsuled = 0x85,
+    MeasurementUltraDenseCapsuled = 0x86,
+
+    SampleRate = 0x15,
+    GetLidarConf = 0x20,
+    SetLidarConf = 0x21,
+
+    AccBoardFlag = 0xFF,
+}
 
 // const SL_LIDAR_RESP_ACC_BOARD_FLAG_MOTOR_CTRL_SUPPORT_MASK: u8 = 0x1;
 //

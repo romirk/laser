@@ -292,6 +292,62 @@ impl Lidar {
         }
     }
 
+    /// Thread that receives scan data
+    fn reader_thread_dense(tx: Sender<Sample>, mut channel: Box<dyn SerialPort>, nuke: Arc<AtomicBool>) {
+        let mut seeking = true;
+        let mut descriptor = [0u8; 7];
+
+        channel
+            .read_exact(&mut descriptor)
+            .expect("missing descriptor");
+
+        if descriptor != [0xa5, 0x5a, 0x05, 0x00, 0x00, 0x40, 0x81] {
+            eprintln!("Unable to read lidar stream (malformed descriptor)");
+            return;
+        }
+
+        // give the lidar time to spin up
+        sleep(Duration::from_millis(1000));
+
+        loop {
+            const BATCH: usize = S1_BAUD / 500;
+            let mut data = [0u8; 5 * BATCH];
+
+            if let Err(err) = channel.read_exact(&mut data) {
+                if nuke.load(Ordering::Relaxed) {
+                    println!("Scan stopped.");
+                    return;
+                }
+                panic!("Unable to read lidar stream (malformed data): {}", err);
+            }
+
+            for i in 0..BATCH {
+                let slice = &data[i * 5..i * 5 + 5];
+
+                // checks
+                let s = slice[0] & 0b11;
+                if s == 0b11 || s == 0b00 || slice[1] & 0b01 != 1 {
+                    eprintln!("parity failed: {:x?}", slice);
+                    continue;
+                }
+
+                let sample = Sample {
+                    start: (slice[0] & 1) != 0,
+                    intensity: slice[0] >> 2,
+                    angle: ((slice[2] as u16) << 1) | (slice[1] as u16 >> 7),
+                    distance: (((slice[4] as u16) << 8) | slice[3] as u16) / 4,
+                };
+
+                if seeking && !sample.start {
+                    continue;
+                }
+
+                seeking = false;
+                tx.send(sample).unwrap();
+            }
+        }
+    }
+
     /// Waits for the reader thread to exit.
     pub fn join(&mut self) {
         if let Some(handle) = self.thread_handle.take() {

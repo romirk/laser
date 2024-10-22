@@ -5,6 +5,7 @@ mod examples;
 mod sl;
 mod util;
 
+use crate::sl::cmd::ScanModeConfEntry::{AnsType, Count, MaxDistance, Name, Typical, UsPerSample};
 use clap::Parser;
 use sl::lidar::Lidar;
 use std::error::Error;

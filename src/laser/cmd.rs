@@ -254,10 +254,10 @@ pub(crate) struct SlLidarResponseGetLidarConf {
 // }
 
 pub struct SlLidarResponseDeviceInfoT {
-    pub(crate) model: u8,
-    pub(crate) firmware_version: u16,
-    pub(crate) hardware_version: u8,
-    pub(crate) serial_number: [u8; 16],
+    pub model: u8,
+    pub firmware_version: u16,
+    pub hardware_version: u8,
+    pub serial_number: [u8; 16],
 }
 
 pub struct SlLidarResponseDeviceHealthT {

@@ -1,51 +1,31 @@
-use crate::sl::cmd::ScanModeConfEntry::*;
-use crate::sl::cmd::SlLidarCmd::{
-    GetDeviceHealth, GetDeviceInfo, GetLidarConf, GetSampleRate, HQMotorSpeedCtrl, Reset, Scan,
-    Stop,
-};
-use crate::sl::cmd::{
+use crate::error::RxError;
+use crate::laser::cmd::ScanModeConfEntry::*;
+use crate::laser::cmd::SlLidarCmd::{ExpressScan, GetDeviceHealth, GetDeviceInfo, GetLidarConf, GetSampleRate, HQMotorSpeedCtrl, Reset, Scan, Stop};
+use crate::laser::cmd::{
     ScanModeConfEntry, SlLidarResponseDeviceHealthT, SlLidarResponseDeviceInfoT,
     SlLidarResponseGetLidarConf, SlLidarResponseSampleRateT,
 };
-use crate::sl::error::RxError;
-use crate::sl::error::RxError::Corrupted;
-use crate::sl::{Channel, Response, ResponseDescriptor};
+use crate::laser::protocol::{Response, ResponseDescriptor, Sample};
 use serialport::SerialPort;
 use std::io::{Read, Write};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{Receiver, Sender};
 use std::sync::{mpsc, Arc};
 use std::thread;
-use std::thread::sleep;
+use std::thread::{sleep, JoinHandle};
 use std::time::Duration;
 
 const S1_BAUD: usize = 256000;
 
-#[derive(Debug, Clone)]
-enum LidarState {
-    Idle,
-    Processing,
-    Scanning,
-    ProtectionStop,
-}
-
-#[derive(Debug, Clone)]
-pub struct Sample {
-    pub(crate) start: bool,
-    pub(crate) intensity: u8,
-    pub(crate) angle: u16,
-    pub(crate) distance: u16,
-}
-
 /// Represents a serial connection to a lidar
 pub struct Lidar {
-    /// State of the lidar's internal state machine
-    nuke: Arc<AtomicBool>,
     /// serial connection object
-    channel: Box<dyn serialport::SerialPort>,
+    transport: Box<dyn SerialPort>,
 
     /// reader thread handle
-    thread_handle: Option<thread::JoinHandle<()>>,
+    thread_handle: Option<JoinHandle<()>>,
+    /// Should nuke `reader_thread`?
+    nuke: Arc<AtomicBool>,
 }
 
 impl Lidar {
@@ -54,9 +34,9 @@ impl Lidar {
         serialport::new(&port, S1_BAUD as u32)
             .timeout(Duration::from_millis(1000))
             .open()
-            .map(|channel| Lidar {
+            .map(|transport| Lidar {
                 nuke: Arc::new(AtomicBool::new(false)),
-                channel,
+                transport,
                 thread_handle: None,
             })
     }
@@ -68,14 +48,14 @@ impl Lidar {
 
     /// Performs a request with a single response
     fn single_req(&mut self, req: &[u8]) -> Result<Response, RxError> {
-        self.channel.write_all(&req)?;
+        self.transport.write_all(&req)?;
         // response header
         let mut descriptor_bytes = [0u8; 7];
 
-        self.channel.read_exact(&mut descriptor_bytes)?;
+        self.transport.read_exact(&mut descriptor_bytes)?;
 
         if descriptor_bytes[0..2] != [0xa5, 0x5a] {
-            return Err(Corrupted(descriptor_bytes));
+            return Err(RxError::Corrupted(descriptor_bytes));
         }
 
         let send_mode = (descriptor_bytes[5] & 0b11000000) >> 6;
@@ -92,7 +72,7 @@ impl Lidar {
 
         // data
         let mut data = vec![0u8; descriptor.len as usize];
-        self.channel.read_exact(&mut data)?;
+        self.transport.read_exact(&mut data)?;
 
         Ok(Response { descriptor, data })
     }
@@ -100,7 +80,7 @@ impl Lidar {
     /// stops the lidar
     pub fn stop(&mut self, reset: bool) {
         self.nuke.store(true, Ordering::Relaxed);
-        self.channel
+        self.transport
             .write_all(&[0xa5, (if reset { Reset } else { Stop }) as u8])
             .unwrap();
     }
@@ -125,8 +105,8 @@ impl Lidar {
             speed_bytes[1],
             0,
         ];
-        req[5] = Lidar::checksum(&req);
-        self.channel.write_all(&req).unwrap()
+        req[5] = Self::checksum(&req);
+        self.transport.write_all(&req).unwrap()
     }
 
     /// Retrieves device information
@@ -191,12 +171,12 @@ impl Lidar {
         match entry {
             Count | Typical => {
                 req[2] = 4;
-                req[7] = Lidar::checksum(&req[..7]);
+                req[7] = Self::checksum(&req[..7]);
             }
             _ => {
                 req[2] = 8;
                 req[7..9].copy_from_slice(payload.unwrap().to_le_bytes().as_ref());
-                req[11] = Lidar::checksum(&req[..11]);
+                req[11] = Self::checksum(&req[..11]);
             }
         }
 
@@ -216,32 +196,39 @@ impl Lidar {
         }
     }
 
+    /// Waits for the reader thread to exit.
+    pub fn join(&mut self) {
+        if let Some(handle) = self.thread_handle.take() {
+            handle.join().unwrap();
+        }
+    }
+
     /// Requests transmission of laser data from the lidar
     pub fn start_scan(&mut self) -> Result<Receiver<Sample>, serialport::Error> {
         // signal lidar to begin a scan
-        self.channel.write_all(&[0xa5, Scan as u8])?;
+        self.transport.write_all(&[0xa5, Scan as u8])?;
 
         let nuke = Arc::clone(&self.nuke);
         let (tx, rx) = mpsc::channel();
-        let channel = self
-            .channel
+        let transport = self
+            .transport
             .try_clone()
             .expect("Serial port channels can be cloned.");
 
         // start reader thread
         self.thread_handle = Some(thread::spawn(move || {
-            Self::reader_thread(tx, channel, nuke);
+            Self::reader_thread(tx, transport, nuke);
         }));
 
         Ok(rx)
     }
 
     /// Thread that receives scan data
-    fn reader_thread(tx: Sender<Sample>, mut channel: Box<dyn SerialPort>, nuke: Arc<AtomicBool>) {
+    fn reader_thread(tx: Sender<Sample>, mut transport: Box<dyn SerialPort>, nuke: Arc<AtomicBool>) {
         let mut seeking = true;
         let mut descriptor = [0u8; 7];
 
-        channel
+        transport
             .read_exact(&mut descriptor)
             .expect("missing descriptor");
 
@@ -257,8 +244,9 @@ impl Lidar {
             const BATCH: usize = S1_BAUD / 500;
             let mut data = [0u8; 5 * BATCH];
 
-            if let Err(err) = channel.read_exact(&mut data) {
+            if let Err(err) = transport.read_exact(&mut data) {
                 if nuke.load(Ordering::Relaxed) {
+                    nuke.store(false, Ordering::Relaxed);
                     println!("Scan stopped.");
                     return;
                 }
@@ -290,18 +278,43 @@ impl Lidar {
                 tx.send(sample).unwrap();
             }
         }
+    }
+
+    /// Requests transmission of laser data from the lidar
+    pub fn start_scan_dense(&mut self) -> Result<Receiver<Sample>, serialport::Error> {
+        // signal lidar to begin a scan
+        self.transport.write_all(&[0xa5, ExpressScan as u8, 0x05, 0x00, 0x00, 0x00, 0x00, 0x00, 0x22])?;
+
+        let nuke = Arc::clone(&self.nuke);
+        let (tx, rx) = mpsc::channel();
+        let transport = self
+            .transport
+            .try_clone()
+            .expect("Serial port channels can be cloned.");
+
+        // start reader thread
+        self.thread_handle = Some(thread::spawn(move || {
+            Self::reader_thread_dense(tx, transport, nuke);
+        }));
+
+        Ok(rx)
+    }
+
+    fn validate_dense(msg: &[u8]) -> bool {
+        msg[0] >> 4 == 0xa && msg[1] >> 4 == 0x5
+            && Self::checksum(&msg[2..]) == (msg[1] << 4) | (msg[0] & 0b1111)
     }
 
     /// Thread that receives scan data
-    fn reader_thread_dense(tx: Sender<Sample>, mut channel: Box<dyn SerialPort>, nuke: Arc<AtomicBool>) {
+    fn reader_thread_dense(tx: Sender<Sample>, mut transport: Box<dyn SerialPort>, nuke: Arc<AtomicBool>) {
         let mut seeking = true;
         let mut descriptor = [0u8; 7];
 
-        channel
+        transport
             .read_exact(&mut descriptor)
             .expect("missing descriptor");
 
-        if descriptor != [0xa5, 0x5a, 0x05, 0x00, 0x00, 0x40, 0x81] {
+        if descriptor != [0xa5, 0x5a, 0x54, 0x00, 0x00, 0x40, 0x85] {
             eprintln!("Unable to read lidar stream (malformed descriptor)");
             return;
         }
@@ -309,12 +322,15 @@ impl Lidar {
         // give the lidar time to spin up
         sleep(Duration::from_millis(1000));
 
-        loop {
-            const BATCH: usize = S1_BAUD / 500;
-            let mut data = [0u8; 5 * BATCH];
+        const MSG_SIZE: usize = 84;
 
-            if let Err(err) = channel.read_exact(&mut data) {
+        loop {
+            const BATCH: usize = S1_BAUD / (100 * MSG_SIZE);
+            let mut data = [0u8; MSG_SIZE * BATCH];
+
+            if let Err(err) = transport.read_exact(&mut data) {
                 if nuke.load(Ordering::Relaxed) {
+                    nuke.store(false, Ordering::Relaxed);
                     println!("Scan stopped.");
                     return;
                 }
@@ -322,37 +338,29 @@ impl Lidar {
             }
 
             for i in 0..BATCH {
-                let slice = &data[i * 5..i * 5 + 5];
+                let slice = &data[i * MSG_SIZE..i * MSG_SIZE + MSG_SIZE];
 
                 // checks
-                let s = slice[0] & 0b11;
-                if s == 0b11 || s == 0b00 || slice[1] & 0b01 != 1 {
-                    eprintln!("parity failed: {:x?}", slice);
+                if !Self::validate_dense(slice) {
+                    eprintln!("checks failed: {:x?}", slice);
                     continue;
                 }
 
-                let sample = Sample {
-                    start: (slice[0] & 1) != 0,
-                    intensity: slice[0] >> 2,
-                    angle: ((slice[2] as u16) << 1) | (slice[1] as u16 >> 7),
-                    distance: (((slice[4] as u16) << 8) | slice[3] as u16) / 4,
-                };
+                let cabins = &slice[4..];
 
-                if seeking && !sample.start {
-                    continue;
-                }
-
-                seeking = false;
-                tx.send(sample).unwrap();
+                // let sample = DenseSample {
+                //     start: slice[3] >> 7 != 0,
+                //     angle: (((slice[3] & 0b1111111) as u16) << 1) | (slice[1] as u16 >> 7),
+                //     distance: ,
+                // };
+                //
+                // if seeking && !sample.start {
+                //     continue;
+                // }
+                //
+                // seeking = false;
+                // tx.send(sample).unwrap();
             }
         }
-    }
-
-    /// Waits for the reader thread to exit.
-    pub fn join(&mut self) {
-        if let Some(handle) = self.thread_handle.take() {
-            handle.join().unwrap();
-        }
-        self.thread_handle = None;
     }
 }

@@ -1,11 +1,19 @@
 [package]
-name = "laser"
+name = "rangefinder"
 version = "0.1.0"
 edition = "2021"
+repository = "https://github.com/romirk/rangefinder"
+authors = ["Romir Kulshrestha <contact@romir.eu>"]
+description = "Laser rangefinding."
+license = "MIT"
+categories = ["science::robotics"]
 
 [dependencies]
-clap = { version = "4.5.20", features = ["derive"] }
-palette = "0.7.6"
 serialport = "4.5.1"
-show-image = "0.14.0"
-tqdm = "0.7.0"
+clap = { version = "4.5.20", features = ["derive"], optional = true }
+palette = { version = "0.7.6", optional = true }
+show-image = { version = "0.14.0", optional = true }
+tqdm = { version = "0.7.0", optional = true }
+
+[features]
+examples = ["dep:show-image", "dep:palette", "dep:tqdm", "dep:clap"]

@@ -1,11 +1,23 @@
-use std::error::Error;
+use crate::laser::Lidar;
+use clap::Parser;
 use palette::{Mix, Srgb};
 use show_image::{create_window, event, run_context, ImageInfo, ImageView, WindowOptions};
+use std::error::Error;
 use tqdm::Iter;
-use crate::sl::lidar::Lidar;
+
+#[derive(Parser)]
+#[command(version, about, long_about = None)]
+struct Args {
+    port: String,
+    points: Option<usize>,
+}
 
 /// Displays a live feed of the lidar stream
-pub fn live_view(mut lidar: Lidar, points: Option<usize>) -> Result<(), Box<dyn Error>> {
+pub fn live_view() -> Result<(), Box<dyn Error>> {
+    let args = Args::parse();
+
+    let mut lidar = Lidar::init(args.port).expect("Lidar should have initialized");
+
     // status information
     let info = lidar.get_info();
     let health = lidar.get_health();
@@ -19,7 +31,7 @@ pub fn live_view(mut lidar: Lidar, points: Option<usize>) -> Result<(), Box<dyn 
     }
 
     /// number of samples
-    let n: usize = points.unwrap_or(5000);
+    let n: usize = args.points.unwrap_or(5000);
 
     // window dimensions
     const WIDTH: usize = 1920;
@@ -36,7 +48,7 @@ pub fn live_view(mut lidar: Lidar, points: Option<usize>) -> Result<(), Box<dyn 
         let rx = lidar.start_scan().expect("Scan should have started");
         let window = create_window("scan", WindowOptions {
             // size: Some([WIDTH as u32 * 4 / 5, HEIGHT as u32 * 4 / 5]),
-            fullscreen: true,
+            fullscreen: false,
             ..WindowOptions::default()
         }).unwrap();
 
@@ -77,3 +89,4 @@ pub fn live_view(mut lidar: Lidar, points: Option<usize>) -> Result<(), Box<dyn 
         }
     });
 }
+

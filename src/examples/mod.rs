@@ -1,5 +1,5 @@
-use crate::sl::cmd::ScanModeConfEntry;
-use crate::sl::lidar::Lidar;
+use crate::laser::cmd::ScanModeConfEntry;
+use crate::laser::Lidar;
 use std::error::Error;
 
 pub mod live;
